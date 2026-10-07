@@ -1,0 +1,4 @@
+# Outputs, references and logs live under ../lab/ (outputs/condense-seq-pipeline/, data/ref/, logs/condseq_pipeline/).
+__pycache__/
+.pytest_cache/
+.snakemake/
