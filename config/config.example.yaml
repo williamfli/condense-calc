@@ -1,0 +1,28 @@
+# condense-seq-pipeline config. Relative paths resolve against this file's folder.
+# Copy it next to your sample sheet and edit; one config per sequencing project.
+
+samples: samples.tsv            # one row per library (see README: sample sheet)
+titration_dir: titration        # <cell>_<sample>_<agent>.tsv per titration series
+
+cells:                          # cell name in the sample sheet -> genome and chromosomes
+  H1:  {genome: hg38, chroms: [chr1, chr2, chr3, chr4, chr5, chr6, chr7, chr8, chr9, chr10, chr11, chr12,
+                               chr13, chr14, chr15, chr16, chr17, chr18, chr19, chr20, chr21, chr22, chrX, chrY]}
+  GM:  {genome: hg38, chroms: [chr1, chr2, chr3, chr4, chr5, chr6, chr7, chr8, chr9, chr10, chr11, chr12,
+                               chr13, chr14, chr15, chr16, chr17, chr18, chr19, chr20, chr21, chr22, chrX]}
+  E14: {genome: mm10, chroms: [chr1, chr2, chr3, chr4, chr5, chr6, chr7, chr8, chr9, chr10, chr11, chr12,
+                               chr13, chr14, chr15, chr16, chr17, chr18, chr19, chrX, chrY]}
+
+genomes:                        # Park used the 4DN references ("4D_hg38", "4D_mm10")
+  hg38: {fasta: /path/to/4D_hg38.fa, bowtie2_index: /path/to/4D_hg38}
+  mm10: {fasta: /path/to/4D_mm10.fa, bowtie2_index: /path/to/4D_mm10}
+
+# ---- settings of the GEO run (batch_submit_ver7.py); change only on purpose
+trim_to: 50                     # bowtie2 --trim-to
+bin_sizes: [1000, 10000]
+align_threads: 8
+mscale: {sp: 1, spd: 1, CoH: 1, PEG: 1, Ca: 5, HP1a: 1, HP1bSUV: 1}
+fit: {bin_size: 10000, min_tnum: 5, model: sigmoid, method: evolution, min_rsq: 0.5}
+
+# ---- departures from the original, all off by default (see README)
+reads: {mm: 10, min_mapq: 0, dedup: false}
+score: {missing_as_nan: false}

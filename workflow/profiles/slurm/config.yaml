@@ -1,0 +1,11 @@
+# Snakemake 8 profile: every rule runs as its own Slurm job.
+# Rules set mem_mb and runtime (minutes); these are fallbacks.
+executor: slurm
+jobs: 200
+latency-wait: 60
+retries: 1
+default-resources:
+  slurm_partition: shared
+  mem_mb: 8000
+  runtime: 120
+  slurm_account: zhuang_lab
