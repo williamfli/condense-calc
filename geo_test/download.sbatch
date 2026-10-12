@@ -10,7 +10,8 @@
 # Resumable: finished files whose md5 matches are skipped. Submit from condense-seq-pipeline/geo_test/.
 #   sbatch download.sbatch 0        # step 0 only (1.28 GB)
 #   sbatch download.sbatch 0 1      # steps 0 and 1 (10.1 GB)
-# netscratch purges files after 90 days; they can be fetched again with this script.
+# netscratch purges files after 90 days; they can be fetched again with this script. Files get
+# the download date (--no-use-server-timestamps), else ENA's old dates trigger the purge at once.
 set -uo pipefail
 RAW=/n/netscratch/zhuang_lab/Lab/wfli/condense-seq/raw/GSE252941
 mkdir -p $RAW
@@ -23,7 +24,7 @@ while IFS=$'\t' read -r step run gsm title pairs bytes md5s urls; do
   for i in "${!U[@]}"; do
     f=$RAW/$(basename "${U[$i]}")
     if [ -s "$f" ] && [ "$(md5sum "$f" | cut -d' ' -f1)" = "${M[$i]}" ]; then echo "ok (have) $f"; continue; fi
-    wget -q -c --tries=5 -O "$f" "https://${U[$i]}" || { echo "DOWNLOAD FAIL $f"; FAIL=1; continue; }
+    wget -q -c --tries=5 --no-use-server-timestamps -O "$f" "https://${U[$i]}" || { echo "DOWNLOAD FAIL $f"; FAIL=1; continue; }
     [ "$(md5sum "$f" | cut -d' ' -f1)" = "${M[$i]}" ] && echo "md5 ok $f" || { echo "MD5 FAIL $f"; FAIL=1; }
   done
 done < manifest.tsv
