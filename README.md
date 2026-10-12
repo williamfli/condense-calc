@@ -11,8 +11,9 @@ Departures from Park are opt-in options, off by default.
 
 The polymer simulation (Park Supp. Note 2) is out of scope here.
 
-Status (2026-10-07): built and validated on simulated reads only. **Not yet run on real reads;
-no reference genomes are installed yet** (see "Running on real data").
+Status (2026-10-12): validated on simulated reads, and on one real GEO series (H1 PEG rep2, 10 kb):
+r = 0.995 with GEO in uniquely mapping bins, 0.964 over all bins, where random multi-mapper
+placement differs (`geo_test/README.md`). hg38 is installed; mm10 is not.
 
 ## Layout
 
@@ -130,8 +131,7 @@ scripts were run on the same BAMs with the GEO run's arguments:
 | Per-nucleosome scores | 0.89–0.95; 3,118 of 3,127 called dyads within 20 bp of a true one |
 | c½ (10 kb) | 0.991, mean error 0.011 mM |
 
-**Not validated yet:** real reads, because we have none. The plan for the first real data is
-below, under "Validate on GEO".
+**Real reads:** see "Validate on GEO" below.
 
 Re-run the validation:
 ```bash
@@ -145,8 +145,8 @@ python tests/check_truth.py ../lab/outputs/condense-seq-pipeline/synthetic
 ## Running on real data
 
 1. **Env** (once): `sbatch slurm/00_make_env.sbatch` builds `condseq` on holylabs. It's already built.
-2. **References** (once): `sbatch slurm/10_reference.sbatch` puts hg38 and mm10 with bowtie2 indexes
-   in `../lab/data/ref/` (~8 GB). **Not run yet**, because lab storage is nearly full.
+2. **References** (once): `sbatch slurm/10_reference.sbatch hg38` (or `mm10`) puts the genome and its
+   bowtie2 index in `../lab/data/ref/`. hg38 is installed (2026-10-12, ~7 GB); mm10 is not.
    Park used the 4DN references; see the script's header.
 3. **Sample sheet** (`samples.tsv`, tab-separated), one row per library:
    ```
@@ -184,4 +184,5 @@ download script, sample sheets, configs and comparison script are there, in thre
 - 8.8 GB: H1 spermine, shallow, 10 kb + c½
 - ~57 GB: H1 spermine, deep, per nucleosome
 
-Prepared 2026-10-12; nothing downloaded yet. See `geo_test/README.md`.
+Step 0 done 2026-10-12: no offset; r = 0.995 in uniquely mapping bins, 0.964 overall. See
+`geo_test/README.md`.

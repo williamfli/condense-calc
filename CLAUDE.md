@@ -16,6 +16,6 @@ Repo-level context (`../CLAUDE.md`) and cluster rules (`~/CLAUDE.md`) load autom
   Python 2.7 for the equivalence test comes from `module load python/2.7.16-fasrc01`.
 - **Where things go:**
   - outputs: `../lab/outputs/condense-seq-pipeline/<run>/`
-  - references: `../lab/data/ref/` (not installed yet)
+  - references: `../lab/data/ref/` (hg38 installed; mm10 not)
   - logs: `../lab/logs/condseq_pipeline/`
 - **Not here:** the Park polymer simulation (see `../aim1-crossmodal/`).
