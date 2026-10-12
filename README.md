@@ -31,6 +31,8 @@ condense-seq-pipeline/
 ├── config/config.example.yaml
 ├── env/                      conda env `condseq` (spec + lock)
 ├── slurm/                    env build, reference setup
+├── tools/                    titration tables from Park's Source Data
+├── geo_test/                 first real-data check against GEO (prepared, not run)
 └── tests/
     ├── test_units.py         small hand-checked cases (pytest)
     ├── simulate.py           synthetic experiment with a known answer
@@ -159,9 +161,11 @@ python tests/check_truth.py ../lab/outputs/condense-seq-pipeline/synthetic
 4. **Titration table** per (cell, sample, agent): `titration/<cell>_<sample>_<agent>.tsv` with columns
    `tnum  conc  survival_fraction` (tnum 0 → conc 0, fraction 1).
    - The survival fraction is the measured soluble fraction (UV-Vis) at that point.
-   - **It sets the score offset (−ln f), so it must come from the experiment.** Park's titration
-     files were never published.
+   - **It sets the score offset (−ln f), so it must come from the experiment.**
    - Park's 10-column format is also read.
+   - **For the GEO samples,** Park's titration measurements are in the paper's Source Data (Fig. 1b,
+     ED Figs. 3d, 7c, 8a, 10a). `tools/titration_from_source_data.py` turns them into tables for all
+     20 published series, already in `../lab/data/park2025/titration/`.
 5. **Config**: copy `config/config.example.yaml` next to the sample sheet, set `genomes`, `cells`, paths.
 6. **Run** (from `condense-seq-pipeline/`, in the `condseq` env):
    ```bash
@@ -174,13 +178,10 @@ python tests/check_truth.py ../lab/outputs/condense-seq-pipeline/synthetic
 
 ### Validate on GEO (first thing to do with real reads)
 
-Download one deep series from SRA (PRJNA1063283): for example H1 NCP spermine rep1, input + ID 4 + ID 8.
-Run the pipeline, then compare our tables with the GEO files in `../lab/data/GSE252941/`:
-- `GSE252941_H1_NCP_sp_1rep_deep_1kb_score.gtab.txt.gz`
-- `GSE252941_H1_NCP_sp_1rep_deep_score.tar.gz` (per chromosome)
+`geo_test/` re-runs GEO samples from their raw reads and compares the tables. The manifest,
+download script, sample sheets, configs and comparison script are there, in three steps:
+- 1.3 GB: H1 PEG, 10 kb
+- 8.8 GB: H1 spermine, shallow, 10 kb + c½
+- ~57 GB: H1 spermine, deep, per nucleosome
 
-The titration fractions for that series can be recovered from GEO itself:
-1. Run the score step once without `--titration`. That gives the score without the −ln f offset.
-2. For each column, take the median of (GEO score − our score). That median is −ln f, so f = exp(−median). If the reference and aligner version match Park's,
-the tables should agree closely. Small differences would come from bowtie2 versions and the
-reference build.
+Prepared 2026-10-12; nothing downloaded yet. See `geo_test/README.md`.

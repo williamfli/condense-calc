@@ -1,0 +1,14 @@
+# Step 1 of the GEO check (see README.md). Paths are relative to this file.
+samples: samples_step1.tsv
+titration_dir: ../../lab/data/park2025/titration     # from Park's Source Data (tools/titration_from_source_data.py)
+cells:
+  H1: {genome: hg38, chroms: [chr1, chr2, chr3, chr4, chr5, chr6, chr7, chr8, chr9, chr10, chr11, chr12, chr13, chr14, chr15, chr16, chr17, chr18, chr19, chr20, chr21, chr22, chrX, chrY]}
+genomes:
+  hg38: {fasta: ../../lab/data/ref/hg38/hg38.fa, bowtie2_index: ../../lab/data/ref/hg38/hg38}
+trim_to: 50
+bin_sizes: [1000, 10000]
+align_threads: 8
+mscale: {sp: 1, PEG: 1}
+fit: {bin_size: 10000, min_tnum: 5, model: sigmoid, method: evolution, min_rsq: 0.5}
+reads: {mm: 10, min_mapq: 0, dedup: false}
+score: {missing_as_nan: false}
