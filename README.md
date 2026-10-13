@@ -11,9 +11,10 @@ Departures from Park are opt-in options, off by default.
 
 The polymer simulation (Park Supp. Note 2) is out of scope here.
 
-Status (2026-10-12): validated on simulated reads, and on one real GEO series (H1 PEG rep2, 10 kb):
-r = 0.995 with GEO in uniquely mapping bins, 0.964 over all bins, where random multi-mapper
-placement differs (`geo_test/README.md`). hg38 is installed; mm10 is not.
+Status (2026-10-13): validated on simulated reads, and on one real GEO series (H1 PEG rep2, 10 kb):
+r = 0.995 with GEO in uniquely mapping bins and 0.964 over all bins. The differences are where
+multi-mapping reads land, most likely because Park used another index (`geo_test/step0/README.md`).
+hg38 is installed; mm10 is not.
 
 ## Layout
 
@@ -33,7 +34,7 @@ condense-seq-pipeline/
 ├── env/                      conda env `condseq` (spec + lock)
 ├── slurm/                    env build, reference setup
 ├── tools/                    titration tables from Park's Source Data
-├── geo_test/                 first real-data check against GEO (prepared, not run)
+├── geo_test/                 real-data checks against GEO (step 0 done: geo_test/step0/)
 └── tests/
     ├── test_units.py         small hand-checked cases (pytest)
     ├── simulate.py           synthetic experiment with a known answer
@@ -85,7 +86,7 @@ Everything large goes to lab storage:
 
 | Key | Default (= Park) | Why you might change it |
 |---|---|---|
-| `reads.min_mapq` | 0 (no filter) | multi-mappers are placed at random; e.g. 10 or 30 removes them |
+| `reads.min_mapq` | 0 (no filter) | where a multi-mapper lands depends on the index (`geo_test/step0/`); e.g. 10 or 30 removes them |
 | `reads.dedup` | false | drop fragments with identical start and length |
 | `score.missing_as_nan` | false | write bins without input reads as NA instead of dropping them |
 | `peaks --fast` (CLI only) | off | faster tie order; can pick different dyads among equal counts |
@@ -185,5 +186,5 @@ download script, sample sheets, configs and comparison script are there, in thre
 - 8.8 GB: H1 spermine, shallow, 10 kb + c½
 - ~57 GB: H1 spermine, deep, per nucleosome
 
-Step 0 done 2026-10-12: no offset; r = 0.995 in uniquely mapping bins, 0.964 overall. See
-`geo_test/README.md`.
+Step 0 done 2026-10-13: no offset; r = 0.995 in uniquely mapping bins, 0.964 overall. Write-up in
+`geo_test/step0/README.md`.

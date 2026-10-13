@@ -1,6 +1,6 @@
 # First real-data check: re-run GEO samples and compare with the GEO tables
 
-**Status (2026-10-12): step 0 done (results below); step 1 not downloaded yet.** hg38 is installed
+**Status (2026-10-13): step 0 done (`step0/README.md`); step 1 downloading.** hg38 is installed
 in `../../lab/data/ref/hg38` (NCBI no-alt analysis set + its bowtie2 index, ~7 GB).
 
 | Step | Series (ENA runs in `manifest.tsv`) | Download | Read pairs | Compare with |
@@ -37,31 +37,25 @@ python geo_test/compare_geo.py $RUN/tables/H1_NCP_PEG_2rep_10kb_score.gtab.gz \
 BAMs and intermediate files stay in the netscratch run folder. Copy `tables/` to
 `../lab/outputs/condense-seq-pipeline/geo_step<N>/` to keep the results.
 
-## Step 0 result (2026-10-12)
+## Step 0 result (2026-10-13)
 
-Run: `/n/netscratch/zhuang_lab/Lab/wfli/condense-seq/pipeline_runs/geo_step0` (BAMs, intermediates);
-tables and the MAPQ counts kept in `../../lab/outputs/condense-seq-pipeline/geo_step0/`.
-Input 12.7 M fragments, ID 6 7.9 M (after Park's read filters); alignment took ~15 min per sample.
-GEO has no 1 kb PEG table, so only the 10 kb table is compared.
+Full write-up, with inputs, every step, figures and the scripts: **[`step0/README.md`](step0/README.md)**.
 
-| | Bins | Pearson r | |d| < 0.05 | |d| > 0.5 |
-|---|---|---|---|---|
-| All bins in both tables | 292,544 | 0.964 | 83% | 0.9% |
-| Bins with no low-MAPQ (< 10) fragments | 171,058 (58%) | 0.995 | 97% | 0.1% |
-| Bins with > 50% low-MAPQ fragments | 15,184 (5%) | | median |d| 0.19 | 14% |
+- **No offset:** mean difference −0.0003, so the titration value (f = 0.098) and the normalization match.
+- **Identical counts:** 63% of bins have the same fragment counts as Park's.
+- **Agreement:** r = 0.964 over all bins. In bins with no MAPQ < 10 fragments (58% of bins),
+  r = 0.995, and 87% of those bins have identical counts.
+- **Where the differences are:** they follow the share of multi-mapping fragments in a bin and sit
+  in centromeric and other repeats.
+- **Not the aligner:** bowtie2 2.3.5.1, 2.4.5 and 2.5.5, and seeds 0 and 1, all give identical
+  counts. A multi-mapper's placement is a fixed function of the read and the index.
+  - The likely cause is Park's different index (4DN "4D_hg38"). 4DN needs an account key to
+    download it, so this is untested.
+- **Scale:** the ours-vs-GEO differences (sd 0.10) are small next to the difference between Park's
+  two replicates (sd 0.41).
 
-- Mean difference −0.0003, median |d| 0.0005: no offset, so the titration value (f = 0.098) and
-  the normalization match.
-- Differences follow the share of multi-mapping fragments in a bin (`mapq_bins.py`), not depth.
-  The worst bins are pericentromeric and segmental-duplication regions (chr15 18–21 Mb,
-  chr20 28–30 Mb, chrX 58–59 Mb). Park kept all alignments regardless of MAPQ, so bowtie2 places
-  multi-mappers at random among equal hits; a different reference copy or bowtie2 version
-  places them differently. This can't be removed while matching Park's settings.
-- At ~25 supernatant fragments per 10 kb bin, a few moved fragments change a score by 0.1–0.5.
-- Rows: 13 only ours, 1,408 only GEO (bins whose input count differs between 0 and > 0).
-
-Conclusion: the pipeline reproduces GEO where reads map uniquely; elsewhere it is limited by
-random multi-mapper placement. `reads.min_mapq` (a departure from Park) removes those reads.
+Run folder: `/n/netscratch/zhuang_lab/Lab/wfli/condense-seq/pipeline_runs/geo_step0` (BAMs,
+intermediates, realignments). Tables kept in `../../lab/outputs/condense-seq-pipeline/geo_step0/`.
 
 ## What would count as success
 Rows should be nearly the same set, apart from bins at assembly gaps and on chrY, where the
