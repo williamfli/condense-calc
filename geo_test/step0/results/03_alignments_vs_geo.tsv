@@ -1,0 +1,5 @@
+alignment	bowtie2	seed	index	r_vs_geo	same_counts_vs_geo	shift_vs_geo	frac_abs_gt_0.5_vs_geo	r_vs_geo_unique	r_vs_geo_gt50pct	r_vs_ours	same_counts_vs_ours	shift_vs_ours	frac_abs_gt_0.5_vs_ours	r_vs_ours_unique	r_vs_ours_gt50pct
+ours	2.5.5	0	NCBI	0.96404	0.63042	-0.0005	0.0090892	0.99497	0.67156						
+seed1	2.5.5	1	NCBI	0.96404	0.63042	-0.0005	0.0090892	0.99497	0.67156	1	1	0	0	1	1
+bt2_2.3.5.1	2.3.5.1	0	NCBI	0.96404	0.63042	-0.0005	0.0090892	0.99497	0.67156	1	1	0	0	1	1
+bt2_2.4.5	2.4.5	0	NCBI	0.96404	0.63042	-0.0005	0.0090892	0.99497	0.67156	1	1	0	0	1	1
