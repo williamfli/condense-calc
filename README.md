@@ -11,8 +11,9 @@ Departures from Park are opt-in options, off by default.
 
 The polymer simulation (Park Supp. Note 2) is out of scope here.
 
-Status (2026-10-13): validated on simulated reads, and on one real GEO series (H1 PEG rep2, 10 kb):
-r = 0.995 with GEO in uniquely mapping bins and 0.964 over all bins. The differences are where
+Status (2026-10-13): validated on simulated reads, and on two real GEO series at 10 kb. H1 PEG rep2:
+r = 0.995 with GEO in uniquely mapping bins and 0.964 over all bins. H1 spermine rep2, nine
+titration points: r = 0.94–0.98, no offset at any point. The differences are where
 multi-mapping reads land, most likely because Park used another index (`geo_test/step0/README.md`).
 hg38 is installed; mm10 is not.
 
@@ -34,7 +35,7 @@ condense-seq-pipeline/
 ├── env/                      conda env `condseq` (spec + lock)
 ├── slurm/                    env build, reference setup
 ├── tools/                    titration tables from Park's Source Data
-├── geo_test/                 real-data checks against GEO (step 0 done: geo_test/step0/)
+├── geo_test/                 real-data checks against GEO (steps 0 and 1 done)
 └── tests/
     ├── test_units.py         small hand-checked cases (pytest)
     ├── simulate.py           synthetic experiment with a known answer
@@ -187,4 +188,5 @@ download script, sample sheets, configs and comparison script are there, in thre
 - ~57 GB: H1 spermine, deep, per nucleosome
 
 Step 0 done 2026-10-13: no offset; r = 0.995 in uniquely mapping bins, 0.964 overall. Write-up in
-`geo_test/step0/README.md`.
+`geo_test/step0/README.md`. Step 1 done 2026-10-13: no offset at any of nine points, r = 0.94–0.98;
+c½ fit converges in 99.9% of bins (`geo_test/README.md`).

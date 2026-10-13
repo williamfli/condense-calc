@@ -1,6 +1,6 @@
 # First real-data check: re-run GEO samples and compare with the GEO tables
 
-**Status (2026-10-13): step 0 done (`step0/README.md`); step 1 downloading.** hg38 is installed
+**Status (2026-10-13): steps 0 and 1 done (step 0 write-up: `step0/README.md`).** hg38 is installed
 in `../../lab/data/ref/hg38` (NCBI no-alt analysis set + its bowtie2 index, ~7 GB).
 
 | Step | Series (ENA runs in `manifest.tsv`) | Download | Read pairs | Compare with |
@@ -56,6 +56,37 @@ Full write-up, with inputs, every step, figures and the scripts: **[`step0/READM
 
 Run folder: `/n/netscratch/zhuang_lab/Lab/wfli/condense-seq/pipeline_runs/geo_step0` (BAMs,
 intermediates, realignments). Tables kept in `../../lab/outputs/condense-seq-pipeline/geo_step0/`.
+
+## Step 1 result (2026-10-13)
+
+H1 NCP spermine, replicate 2, shallow: input + IDs 1–9, 146.9 M read pairs. Same settings as step 0.
+
+| Column | Bins in both | Pearson | Spearman | Mean diff | Median abs. diff | abs. diff < 0.05 |
+|---|---|---|---|---|---|---|
+| `sp_1` (0.158 mM) | 292,549 | 0.940 | 0.955 | 0.0000 | 0.0006 | 88.4% |
+| `sp_2` | 292,549 | 0.946 | 0.961 | 0.0001 | 0.0012 | 88.0% |
+| `sp_3` | 292,549 | 0.956 | 0.973 | 0.0000 | 0.0011 | 88.2% |
+| `sp_4` (0.316 mM) | 292,549 | 0.962 | 0.979 | −0.0000 | 0.0011 | 87.9% |
+| `sp_5` | 292,549 | 0.973 | 0.985 | 0.0002 | 0.0011 | 88.1% |
+| `sp_6` | 292,549 | 0.974 | 0.986 | 0.0001 | 0.0011 | 87.7% |
+| `sp_7` | 292,549 | 0.974 | 0.986 | 0.0003 | 0.0002 | 87.4% |
+| `sp_8` (0.794 mM) | 292,549 | 0.973 | 0.985 | 0.0005 | 0.0009 | 86.3% |
+| `sp_9` (1 mM) | 292,549 | 0.977 | 0.987 | 0.0003 | 0.0012 | 87.6% |
+
+- **No offset at any point,** so Park's soluble fraction is right for all nine titration points.
+- **The same pattern as step 0:** 86–88% of bins within 0.05 of GEO, and the same bins missing
+  (1,402 only in GEO, 16 only in ours). r is lowest at the first points, where scores vary least
+  between bins.
+- **c½ fit (10 kb):** 292,373 of 292,565 bins fit with R² ≥ 0.5 (median R² 0.93). Median c½ is
+  0.215 mM, in line with the genome-wide titration (0.48 surviving at 0.200 mM). GEO has no c½
+  table, so this is a sanity check, not a comparison.
+- **1 kb table:** built, but GEO has no shallow 1 kb spermine table to compare it with.
+- **Download:** ENA served 14 of 40 files at full length with a few hundred bytes wrong;
+  `download.sbatch` now downloads a file again until its md5 matches.
+
+Run folder: `/n/netscratch/zhuang_lab/Lab/wfli/condense-seq/pipeline_runs/geo_step1`. Tables kept
+in `../../lab/outputs/condense-seq-pipeline/geo_step1/`. Compared with
+`python geo_test/compare_geo.py <ours> ../lab/data/GSE252941/GSE252941_H1_NCP_sp_2rep_10kb_score.gtab.txt.gz`.
 
 ## What would count as success
 Rows should be nearly the same set, apart from bins at assembly gaps and on chrY, where the
