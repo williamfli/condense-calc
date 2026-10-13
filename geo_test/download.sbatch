@@ -10,8 +10,10 @@
 # connection only ~0.4 MB/s, so files are now fetched 4 at a time (wget waits on the network, so
 # one core is enough).
 # Download the FASTQ of the steps listed (default: 0 1) from ENA into netscratch, checking md5s.
-# Resumable: finished files whose md5 matches are skipped; a file whose md5 fails is deleted, so a
-# rerun fetches it again. Submit from condense-seq-pipeline/geo_test/.
+# Files whose md5 already matches are skipped. ENA sometimes serves a file at full length with a few
+# hundred bytes wrong (2026-10-13: 14 of 40 step-1 files; one file was bad in all 4 downloads,
+# at different offsets each time, also when written to node-local /scratch), so each file is
+# downloaded again, up to 5 times, until its md5 matches. Submit from condense-seq-pipeline/geo_test/.
 #   sbatch download.sbatch 0        # step 0 only (1.28 GB)
 #   sbatch download.sbatch 0 1      # steps 0 and 1 (10.1 GB)
 # netscratch purges files after 90 days; they can be fetched again with this script. Files get
@@ -22,12 +24,16 @@ PARALLEL=4
 mkdir -p $RAW
 STEPS=" ${@:-0 1} "
 
-fetch() {   # fetch FILE MD5 URL
-  local f=$1 md5=$2 url=$3
+fetch() {   # fetch FILE MD5 URL; up to 5 attempts, a fresh download each time
+  local f=$1 md5=$2 url=$3 try
   if [ -s "$f" ] && [ "$(md5sum "$f" | cut -d' ' -f1)" = "$md5" ]; then echo "ok (have) $f"; return 0; fi
-  wget -q -c --tries=5 --no-use-server-timestamps -O "$f" "https://$url" || { echo "DOWNLOAD FAIL $f"; return 1; }
-  if [ "$(md5sum "$f" | cut -d' ' -f1)" = "$md5" ]; then echo "md5 ok $f"
-  else echo "MD5 FAIL $f (deleted; rerun to fetch again)"; rm -f "$f"; return 1; fi
+  for try in 1 2 3 4 5; do
+    rm -f "$f"
+    wget -q --tries=5 --no-use-server-timestamps -O "$f" "https://$url" || { echo "download error (try $try) $f"; continue; }
+    if [ "$(md5sum "$f" | cut -d' ' -f1)" = "$md5" ]; then echo "md5 ok (try $try) $f"; return 0; fi
+    echo "md5 mismatch (try $try) $f"
+  done
+  rm -f "$f"; echo "FAIL after 5 tries $f"; return 1
 }
 export -f fetch
 
