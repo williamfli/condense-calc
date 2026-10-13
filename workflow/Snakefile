@@ -111,8 +111,9 @@ rule bincount:
         fasta=lambda w: P(genome_of(w.name)['fasta']),
         chroms=lambda w: ' '.join(chroms_of(w.name)),
         win=lambda w: {v: k for k, v in KB.items()}[w.kb],
-    # 1.3-1.4 GB, 2-3 min on 6-8 M pairs (seff 2026-10-12); doubles on a retry after OOM
-    resources: mem_mb=lambda w, attempt: 2500 * attempt, runtime=240
+    # 1.3-1.4 GB on 6-8 M pairs (seff 2026-10-12); 2.7 GB, 2-9 min on 8-9 M pairs, and 2500 MB was
+    # OOM-killed (sacct 2026-10-13). Doubles on a retry after OOM.
+    resources: mem_mb=lambda w, attempt: 4000 * attempt, runtime=240
     shell:
         f'{CONDSEQ} bincount --bam {{input.bam}} --fasta {{params.fasta}} --chroms {{params.chroms}} '
         f'--win {{params.win}} {READ_OPTS} -o {{output}}'
@@ -137,8 +138,11 @@ rule table_bin:
     input:
         lambda w: [f'score/{n}_{w.kb}_score.gtab.gz' for n in SERIES[w.series].query('tnum > 0')['name']]
     output: 'tables/{series}_{kb}_score.gtab.gz'
-    # 1 kb, one column: 1.4 GB (seff 2026-10-12); grows with the number of titration points
-    resources: mem_mb=lambda w, attempt: 3000 * attempt, runtime=60
+    # Holds every input table in memory as Python strings, ~1.8 GB per 1 kb column. 1 kb: one column
+    # 1.4 GB (seff 2026-10-12), nine columns 16.6 GB, 3 min (sacct 2026-10-13); 10 kb: < 0.1 GB.
+    resources:
+        mem_mb=lambda w, input, attempt: ((2800 * len(input) + 1000) if w.kb == '1kb' else 2000) * attempt,
+        runtime=60
     shell: f'{CONDSEQ} concat --inputs {{input}} -o {{output}}'
 
 # ---------------------------------------------------------------- per-nucleosome scores (deep)
@@ -199,7 +203,8 @@ rule num_bin:
         tnum=lambda w: SAMPLES.loc[w.name, 'tnum'],
         mscale=lambda w: config.get('mscale', {}).get(SAMPLES.loc[w.name, 'agent'], 1),
         chroms=lambda w: ' '.join(chroms_of(w.name)),
-    resources: mem_mb=8000, runtime=60
+    # 10 kb: < 0.1 GB, < 1 min (sacct 2026-10-13)
+    resources: mem_mb=lambda w, attempt: 2000 * attempt, runtime=60
     shell:
         f'{CONDSEQ} num --inputs {{input.bins}} --titration {{input.tit}} --tnum {{params.tnum}} '
         f'--mscale {{params.mscale}} --chroms {{params.chroms}} -o {{output}}'
@@ -207,7 +212,8 @@ rule num_bin:
 rule table_num:
     input: lambda w: [f'num/{n}_{w.kb}_num.gtab.gz' for n in SERIES[w.series]['name']]
     output: 'tables/{series}_{kb}_num.gtab.gz'
-    resources: mem_mb=8000, runtime=60
+    # 10 kb, ten columns: < 0.1 GB, 1 min (sacct 2026-10-13)
+    resources: mem_mb=lambda w, attempt: 2000 * attempt, runtime=60
     shell: f'{CONDSEQ} concat --inputs {{input}} -o {{output}}'
 
 rule fit:
@@ -220,7 +226,8 @@ rule fit:
         tnums=lambda w: ' '.join(SERIES[w.series]['tnum'].astype(str)),
         model=FIT.get('model', 'sigmoid'), method=FIT.get('method', 'evolution'),
         rsq=FIT.get('min_rsq', 0.5),
-    resources: mem_mb=8000, runtime=720
+    # 10 kb, ten points: 0.5 GB, 139 min, 1 core at 99% (sacct 2026-10-13)
+    resources: mem_mb=lambda w, attempt: 1500 * attempt, runtime=720
     shell:
         f'{CONDSEQ} fit --input {{input.num}} --titration {{input.tit}} --tnums {{params.tnums}} '
         f'--model {{params.model}} --method {{params.method}} --min-rsq {{params.rsq}} -o {{output}}'
