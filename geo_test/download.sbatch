@@ -1,11 +1,12 @@
 #!/bin/bash
 #SBATCH -J condseq_geo_dl
-#SBATCH -c 2
+#SBATCH -c 1
 #SBATCH -t 0-06:00
 #SBATCH -p shared
-#SBATCH --mem=4G
+#SBATCH --mem=1G
 #SBATCH -o ../../lab/logs/condseq_pipeline/%x_%j.out
 #SBATCH -e ../../lab/logs/condseq_pipeline/%x_%j.err
+# step 0 (8 files): 1 core, 21 MB peak, 52 min (seff 2026-10-12)
 # Download the FASTQ of the steps listed (default: 0 1) from ENA into netscratch, checking md5s.
 # Resumable: finished files whose md5 matches are skipped. Submit from condense-seq-pipeline/geo_test/.
 #   sbatch download.sbatch 0        # step 0 only (1.28 GB)

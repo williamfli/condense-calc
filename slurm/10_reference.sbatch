@@ -1,11 +1,14 @@
 #!/bin/bash
 #SBATCH -J condseq_ref
-#SBATCH -c 16
+#SBATCH -c 1
 #SBATCH -t 0-08:00
 #SBATCH -p shared
-#SBATCH --mem=32G
+#SBATCH --mem=8G
 #SBATCH -o ../lab/logs/condseq_pipeline/%x_%j.out
 #SBATCH -e ../lab/logs/condseq_pipeline/%x_%j.err
+# hg38: single-threaded, 28 MB peak, 26 min (seff 2026-10-12). mm10 (not measured) runs
+# bowtie2-build, which uses all allocated cores: `sbatch -c 8 slurm/10_reference.sbatch mm10` halves
+# its few hours of runtime; 8G is the usual estimate for a mammalian index build.
 # Reference genomes + bowtie2 indexes into ../lab/data/ref/ (~4-8 GB per genome; archives are
 # deleted after extraction). Submit from condense-seq-pipeline/:
 #   sbatch slurm/10_reference.sbatch hg38        # or mm10, or both (default)
@@ -37,6 +40,6 @@ wget -q -c https://hgdownload.soe.ucsc.edu/goldenPath/mm10/bigZips/mm10.fa.gz
 gunzip -c mm10.fa.gz > mm10.full.fa && samtools faidx mm10.full.fa
 samtools faidx mm10.full.fa $(cut -f1 mm10.full.fa.fai | grep -E '^chr([0-9]+|X|Y|M)$') > mm10.fa
 samtools faidx mm10.fa && rm mm10.full.fa*
-bowtie2-build --threads 16 mm10.fa mm10 && rm mm10.fa.gz
+bowtie2-build --threads ${SLURM_CPUS_PER_TASK:-1} mm10.fa mm10 && rm mm10.fa.gz
 fi
 ls -laL $REF/*/ && du -sh $REF

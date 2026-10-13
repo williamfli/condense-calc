@@ -1,9 +1,10 @@
 #!/bin/bash
 #SBATCH -J condseq_env
-#SBATCH -c 4
+#SBATCH -c 1
 #SBATCH -t 0-01:00
 #SBATCH -p test
-#SBATCH --mem=16G
+#SBATCH --mem=4G
+# 1 core, 1.0-2.4 GB peak (seff 2026-10-07/08: condseq, condrepro)
 #SBATCH -o ../lab/logs/condseq_pipeline/%x_%j.out
 #SBATCH -e ../lab/logs/condseq_pipeline/%x_%j.err
 # Submit from condense-seq-pipeline/, outside an activated env.

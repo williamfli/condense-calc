@@ -1,9 +1,10 @@
 #!/bin/bash
 #SBATCH -J condseq_synth
-#SBATCH -c 8
+#SBATCH -c 2
 #SBATCH -t 0-02:00
 #SBATCH -p test
-#SBATCH --mem=24G
+#SBATCH --mem=4G
+# was -c 8 / 24G: used 1.5 cores, < 1 GB (seff 2026-10-07)
 #SBATCH -o ../lab/logs/condseq_pipeline/%x_%j.out
 #SBATCH -e ../lab/logs/condseq_pipeline/%x_%j.err
 # End-to-end test on simulated reads. Submit from condense-seq-pipeline/, outside an env.
@@ -23,11 +24,11 @@ genomes:
   sim: {fasta: ref/sim.fa, bowtie2_index: ref/sim}
 trim_to: 50
 bin_sizes: [1000, 10000]
-align_threads: 4
+align_threads: 2
 mscale: {sp: 1}
 fit: {bin_size: 10000, min_tnum: 5, model: sigmoid, method: evolution, min_rsq: 0.5}
 reads: {mm: 10, min_mapq: 0, dedup: false}
 score: {missing_as_nan: false}
 CFG
-snakemake -s workflow/Snakefile --configfile $OUT/input/config.yaml --directory $OUT/run --cores 8 -p
+snakemake -s workflow/Snakefile --configfile $OUT/input/config.yaml --directory $OUT/run --cores $SLURM_CPUS_PER_TASK -p
 echo "=== outputs"; find $OUT/run/tables -type f | sort

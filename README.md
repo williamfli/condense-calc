@@ -173,7 +173,8 @@ python tests/check_truth.py ../lab/outputs/condense-seq-pipeline/synthetic
              --directory ../lab/outputs/condense-seq-pipeline/<run> --profile workflow/profiles/slurm -n   # dry run
    # then the same without -n; Snakemake resumes where it stopped
    ```
-   Rules ask for 8–24 GB and up to 24 h (alignment). The heaviest step on deep human data is
+   Rules ask for 2–24 GB and up to 24 h (alignment); measured sizes are noted in the Snakefile, and
+   memory doubles on the retry after an out-of-memory failure. The heaviest step on deep human data is
    `peaks`, about 20 M candidate dyads on chr1.
 
 ### Validate on GEO (first thing to do with real reads)

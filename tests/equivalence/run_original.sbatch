@@ -1,9 +1,10 @@
 #!/bin/bash
 #SBATCH -J condseq_equiv
-#SBATCH -c 2
+#SBATCH -c 1
 #SBATCH -t 0-04:00
 #SBATCH -p test
-#SBATCH --mem=24G
+#SBATCH --mem=4G
+# 1 core, < 1 GB, 1.5 min (seff 2026-10-07)
 #SBATCH -o ../lab/logs/condseq_pipeline/%x_%j.out
 #SBATCH -e ../lab/logs/condseq_pipeline/%x_%j.err
 # Run Park's original Python 2 scripts (external/condense-seq/prepro_scripts) on the synthetic

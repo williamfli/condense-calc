@@ -95,7 +95,8 @@ rule align:
         r1=lambda w, input: ','.join(input.r1),
         r2=lambda w, input: ','.join(input.r2),
     threads: config.get('align_threads', 8)
-    resources: mem_mb=16000, runtime=24 * 60
+    # H1 PEG 2rep (6-8 M pairs, hg38): 8 threads at ~90%, 5.7 GB, 8-12 min (seff 2026-10-12)
+    resources: mem_mb=9000, runtime=24 * 60
     log: 'logs/align/{name}.log'
     shell:
         'bowtie2 -p {threads} --trim-to {params.trim} -x {params.index} '
@@ -110,7 +111,8 @@ rule bincount:
         fasta=lambda w: P(genome_of(w.name)['fasta']),
         chroms=lambda w: ' '.join(chroms_of(w.name)),
         win=lambda w: {v: k for k, v in KB.items()}[w.kb],
-    resources: mem_mb=8000, runtime=240
+    # 1.3-1.4 GB, 2-3 min on 6-8 M pairs (seff 2026-10-12); doubles on a retry after OOM
+    resources: mem_mb=lambda w, attempt: 2500 * attempt, runtime=240
     shell:
         f'{CONDSEQ} bincount --bam {{input.bam}} --fasta {{params.fasta}} --chroms {{params.chroms}} '
         f'--win {{params.win}} {READ_OPTS} -o {{output}}'
@@ -124,7 +126,8 @@ rule score_bin:
     params:
         tnum=lambda w: SAMPLES.loc[w.name, 'tnum'],
         chroms=lambda w: ' '.join(chroms_of(w.name)),
-    resources: mem_mb=8000, runtime=120
+    # 1 kb: 4.4 GB; 10 kb: < 0.1 GB (seff 2026-10-12)
+    resources: mem_mb=lambda w, attempt: (7000 if w.kb == '1kb' else 2000) * attempt, runtime=120
     shell:
         f'{CONDSEQ} score --test {{input.test}} --control {{input.control}} --titration {{input.tit}} '
         f'--tnum {{params.tnum}} --chroms {{params.chroms}} {NAN_OPT} -o {{output}}'
@@ -134,7 +137,8 @@ rule table_bin:
     input:
         lambda w: [f'score/{n}_{w.kb}_score.gtab.gz' for n in SERIES[w.series].query('tnum > 0')['name']]
     output: 'tables/{series}_{kb}_score.gtab.gz'
-    resources: mem_mb=8000, runtime=60
+    # 1 kb, one column: 1.4 GB (seff 2026-10-12); grows with the number of titration points
+    resources: mem_mb=lambda w, attempt: 3000 * attempt, runtime=60
     shell: f'{CONDSEQ} concat --inputs {{input}} -o {{output}}'
 
 # ---------------------------------------------------------------- per-nucleosome scores (deep)

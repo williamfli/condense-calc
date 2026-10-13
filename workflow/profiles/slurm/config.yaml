@@ -1,5 +1,6 @@
 # Snakemake 8 profile: every rule runs as its own Slurm job.
-# Rules set mem_mb and runtime (minutes); these are fallbacks.
+# Rules set mem_mb and runtime (minutes); these are fallbacks. Rules whose sizes were measured say
+# so in a comment (seff); peaks, areas, score_ncov, num and fit are still estimates.
 executor: slurm
 jobs: 200
 latency-wait: 60
