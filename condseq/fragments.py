@@ -13,6 +13,7 @@ Not applied by the original, available here as opt-in options (default off = fai
   - dedup: drop fragments with the same (chromosome, start, template length)
 Fragment-length windows differ by stage, so they are applied later (see select()).
 """
+from array import array
 from dataclasses import dataclass
 
 import numpy as np
@@ -100,10 +101,12 @@ def read_bam(path, chroms, mm_cutoff=10, min_mapq=0, dedup=False):
             if min_mapq and r.mapping_quality < min_mapq:
                 continue
             cig = r.cigartuples or []
-            acc.setdefault(ref, []).append((pos, pos + _ref_span(cig), r.template_length))
+            if ref not in acc:
+                acc[ref] = array('q')          # flat (pos, end, tlen) triples: 24 bytes per fragment
+            acc[ref].extend((pos, pos + _ref_span(cig), r.template_length))
     out = {}
-    for ref, rows in acc.items():
-        a = np.asarray(rows, dtype=np.int64).reshape(-1, 3)
+    for ref, buf in acc.items():
+        a = np.frombuffer(buf, dtype=np.int64).reshape(-1, 3)
         if dedup and len(a):
             _, first = np.unique(a[:, [0, 2]], axis=0, return_index=True)
             a = a[np.sort(first)]
