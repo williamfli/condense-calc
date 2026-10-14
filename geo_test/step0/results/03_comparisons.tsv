@@ -1,9 +1,0 @@
-comparison	bins_both	only_first	only_second	pearson	spearman	mean_diff	sd_diff	median_abs_diff	p95_abs_diff	frac_abs_lt_0.05	frac_abs_gt_0.5
-ours vs GEO (same reads)	292544	13	1408	0.9640	0.9706	-0.0003	0.1025	0.0005	0.1818	0.8331	0.0091
-ours seed 1 vs ours seed 0 (same reads)	292557	0	0	1.0000	1.0000	0.0000	0.0000	0.0000	0.0000	1.0000	0.0000
-ours vs GEO replicate 1 (other reads)	292546	11	1415	0.4109	0.3334	-0.0111	0.4038	0.2674	0.7937	0.1009	0.2092
-GEO replicate 2 vs GEO replicate 1	293943	9	18	0.4114	0.3346	-0.0109	0.4061	0.2680	0.7986	0.1007	0.2113
-bowtie2 2.3.5.1, NCBI index vs GEO (same reads)	292544	13	1408	0.9640	0.9706	-0.0003	0.1025	0.0005	0.1818	0.8331	0.0091
-bowtie2 2.3.5.1, NCBI index vs ours (bowtie2 2.5.5) (same reads)	292557	0	0	1.0000	1.0000	0.0000	0.0000	0.0000	0.0000	1.0000	0.0000
-bowtie2 2.4.5, NCBI index vs GEO (same reads)	292544	13	1408	0.9640	0.9706	-0.0003	0.1025	0.0005	0.1818	0.8331	0.0091
-bowtie2 2.4.5, NCBI index vs ours (bowtie2 2.5.5) (same reads)	292557	0	0	1.0000	1.0000	0.0000	0.0000	0.0000	0.0000	1.0000	0.0000

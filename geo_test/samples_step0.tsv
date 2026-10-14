@@ -1,3 +1,0 @@
-cell	sample	agent	tnum	rep	depth	fastq1	fastq2
-H1	NCP	PEG	0	2	shallow	/n/netscratch/zhuang_lab/Lab/wfli/condense-seq/raw/GSE252941/SRR31626988_1.fastq.gz,/n/netscratch/zhuang_lab/Lab/wfli/condense-seq/raw/GSE252941/SRR31626989_1.fastq.gz	/n/netscratch/zhuang_lab/Lab/wfli/condense-seq/raw/GSE252941/SRR31626988_2.fastq.gz,/n/netscratch/zhuang_lab/Lab/wfli/condense-seq/raw/GSE252941/SRR31626989_2.fastq.gz
-H1	NCP	PEG	6	2	shallow	/n/netscratch/zhuang_lab/Lab/wfli/condense-seq/raw/GSE252941/SRR31626986_1.fastq.gz,/n/netscratch/zhuang_lab/Lab/wfli/condense-seq/raw/GSE252941/SRR31626987_1.fastq.gz	/n/netscratch/zhuang_lab/Lab/wfli/condense-seq/raw/GSE252941/SRR31626986_2.fastq.gz,/n/netscratch/zhuang_lab/Lab/wfli/condense-seq/raw/GSE252941/SRR31626987_2.fastq.gz
