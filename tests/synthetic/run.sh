@@ -1,6 +1,6 @@
 #!/bin/bash
-# End-to-end test on simulated reads (~1 min on 2 cores). Run from the repo root, in the cloudpoint env:
-#   bash tests/synthetic/run.sh OUTDIR [cloudpoint run options, e.g. --qc verbose]
+# End-to-end test on simulated reads (~1 min on 2 cores). Run from the repo root, in the condense-calc env:
+#   bash tests/synthetic/run.sh OUTDIR [condense-calc run options, e.g. --qc verbose]
 # Then: python tests/synthetic/check_truth.py OUTDIR
 set -euo pipefail
 OUT=$(realpath -m "$1"); shift
@@ -15,4 +15,4 @@ cells:
   SIM: {genome: sim, chroms: [chr1, chr2, chrX]}
 threads: 2
 CFG
-python -m cloudpoint run "$OUT/input/config.yaml" -o "$OUT/run" --cores "${SLURM_CPUS_PER_TASK:-2}" "$@"
+python -m condense_calc run "$OUT/input/config.yaml" -o "$OUT/run" --cores "${SLURM_CPUS_PER_TASK:-2}" "$@"

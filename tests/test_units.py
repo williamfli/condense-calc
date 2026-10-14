@@ -1,10 +1,10 @@
-"""Small hand-checkable tests of each stage. Run: pytest tests/test_units.py (in the cloudpoint env)."""
+"""Small hand-checkable tests of each stage. Run: pytest tests/test_units.py (in the condense-calc env)."""
 import math
 
 import numpy as np
 
-from cloudpoint import counts, gtab, score
-from cloudpoint.fragments import Fragments
+from condense_calc import counts, gtab, score
+from condense_calc.fragments import Fragments
 
 
 def F(rows):

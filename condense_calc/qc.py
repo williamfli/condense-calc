@@ -1,6 +1,6 @@
 """Quality control: per-sample read statistics, per-series checks, replicate agreement, and a report.
 
-Levels (config `qc` or `cloudpoint run --qc`):
+Levels (config `qc` or `condense-calc run --qc`):
   off      no QC
   default  alignment and read-filter summary, fragment lengths, titration, score distributions,
            score vs input/supernatant counts, c-half fit success, nucleosome spacing (deep),
@@ -509,11 +509,11 @@ def report(sample_jsons, series_jsons, rep_jsons, overrides, outdir):
         body = ''.join('<tr>' + ''.join(f'<td>{html.escape(_fmt(v))}</td>' for v in r) + '</tr>'
                        for r in df.itertuples(index=False))
         return f'<table><tr>{head}</tr>{body}</table>'
-    parts = ['<!doctype html><meta charset="utf-8"><title>cloudpoint QC</title>',
+    parts = ['<!doctype html><meta charset="utf-8"><title>condense-calc QC</title>',
              '<style>body{font:14px sans-serif;margin:24px;max-width:1500px}table{border-collapse:collapse;'
              'margin:8px 0 20px}td,th{border:1px solid #ccc;padding:3px 7px;text-align:right}'
              'th{background:#f3f3f3}img{max-width:100%;border:1px solid #ddd}</style>',
-             '<h1>cloudpoint QC report</h1>',
+             '<h1>condense-calc QC report</h1>',
              f'<h2>Flags ({len(fl)})</h2>',
              table(pd.DataFrame(fl)) if fl else '<p>No flags.</p>',
              '<h2>Samples</h2>', table(st),

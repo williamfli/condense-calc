@@ -9,7 +9,7 @@ import math
 import sys
 from pathlib import Path
 
-from cloudpoint import gtab
+from condense_calc import gtab
 
 OUT = Path(sys.argv[1])
 O, R, E = OUT / 'equiv/original', OUT / 'run', OUT / 'equiv/ours'

@@ -1,6 +1,6 @@
 # condense-seq: paired-end reads -> condensability tables (GEO GSE252941 format) and QC.
-# Usually started by `cloudpoint run` (see README); it can also be run with snakemake directly:
-#   snakemake -s cloudpoint/workflow/Snakefile --configfile config.yaml --directory OUTDIR --cores 8
+# Usually started by `condense-calc run` (see README); it can also be run with snakemake directly:
+#   snakemake -s condense_calc/workflow/Snakefile --configfile config.yaml --directory OUTDIR --cores 8
 # Relative paths in the config are read relative to the config file's folder.
 import re
 from pathlib import Path
@@ -17,7 +17,7 @@ def P(p):
 
 
 shell.prefix(f'export PYTHONPATH={PKG_PARENT}:$PYTHONPATH; set -euo pipefail; ')
-CLI = 'python -m cloudpoint'
+CLI = 'python -m condense_calc'
 
 # ---------------------------------------------------------------- settings
 # Defaults reproduce the processing of the Park et al. 2025 GEO tables (GSE252941).

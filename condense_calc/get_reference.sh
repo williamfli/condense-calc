@@ -1,6 +1,6 @@
 #!/bin/bash
 # Download a genome FASTA (+ .fai) and its bowtie2 index into OUTDIR/<genome>/.
-#   get_reference.sh OUTDIR THREADS hg38 [mm10]      (usually via: cloudpoint reference hg38 OUTDIR)
+#   get_reference.sh OUTDIR THREADS hg38 [mm10]      (usually via: condense-calc reference hg38 OUTDIR)
 # hg38: NCBI GRCh38 no-alt analysis set with its prebuilt bowtie2 index (~7 GB, ~30 min).
 # mm10: UCSC mm10 chr1-19, X, Y, M; the index is built here (a few hours; use more threads).
 # Park et al. used the 4DN versions of these references; multi-mapping reads can land differently.

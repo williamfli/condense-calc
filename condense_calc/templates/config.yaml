@@ -1,8 +1,8 @@
-# cloudpoint config. Relative paths are read relative to this file's folder.
+# condense-calc config. Relative paths are read relative to this file's folder.
 samples: samples.tsv              # one row per sequencing library
 titration_dir: titration          # one table per (cell, sample, agent): <cell>_<sample>_<agent>.tsv
 
-genomes:                          # FASTA (with .fai) and bowtie2 index prefix; `cloudpoint reference` makes both
+genomes:                          # FASTA (with .fai) and bowtie2 index prefix; `condense-calc reference` makes both
   hg38: {fasta: /path/to/ref/hg38/hg38.fa, bowtie2_index: /path/to/ref/hg38/hg38}
 
 cells:                            # cell name used in the sample sheet -> genome

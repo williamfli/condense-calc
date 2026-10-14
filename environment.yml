@@ -1,5 +1,5 @@
-# mamba env create -f environment.yml && mamba activate cloudpoint && pip install -e .
-name: cloudpoint
+# mamba env create -f environment.yml && mamba activate condense-calc && pip install -e .
+name: condense-calc
 channels:
   - conda-forge
   - bioconda

@@ -1,8 +1,8 @@
 """condense-seq reads -> condensability tables.
 
-  cloudpoint init DIR            write a config, sample sheet and titration template into DIR
-  cloudpoint reference hg38 DIR  download a genome and its bowtie2 index
-  cloudpoint run CONFIG          run the whole workflow (locally or on Slurm)
+  condense-calc init DIR            write a config, sample sheet and titration template into DIR
+  condense-calc reference hg38 DIR  download a genome and its bowtie2 index
+  condense-calc run CONFIG          run the whole workflow (locally or on Slurm)
 
 The other subcommands are single pipeline stages, called by the workflow."""
 import argparse
@@ -188,7 +188,7 @@ def cmd_qc_report(args):
 
 
 def main(argv=None):
-    p = argparse.ArgumentParser(prog='cloudpoint', description=__doc__,
+    p = argparse.ArgumentParser(prog='condense-calc', description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest='cmd', required=True)
 
@@ -337,7 +337,7 @@ def main(argv=None):
     s.set_defaults(func=cmd_qc_report)
 
     argv = list(sys.argv[1:] if argv is None else argv)
-    extra = argv[argv.index('--') + 1:] if '--' in argv else []     # `cloudpoint run ... -- <snakemake args>`
+    extra = argv[argv.index('--') + 1:] if '--' in argv else []     # `condense-calc run ... -- <snakemake args>`
     argv = argv[:argv.index('--')] if '--' in argv else argv
     args = p.parse_args(argv)
     args.snakemake_args = extra
