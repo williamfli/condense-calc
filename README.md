@@ -1,192 +1,125 @@
-# condense-seq-pipeline
+# condseq
 
-From condense-seq raw reads (paired FASTQ) to condensability tables in the GEO GSE252941 format:
-binned scores (1 kb, 10 kb), per-nucleosome scores, nucleosome numbers and c½ fits.
+Turns condense-seq reads (paired-end FASTQ) into condensability tables and a QC report.
+It reimplements the processing behind the Park et al. 2025 GEO tables (GSE252941); on test data its
+output is identical to the authors' scripts. The output uses the same table format.
 
-It is a Python 3 port of the Park 2025 preprocessing (`../external/condense-seq/prepro_scripts`,
-commit `a8d2dd8`). The settings come from the script that made the GEO files
-(`submit_scripts/batch_submit_ver7.py` and the `*-submit` job scripts). **On simulated reads,
-every stage gives byte-identical output to Park's original scripts** (see Validation).
-Departures from Park are opt-in options, off by default.
+## Install
 
-The polymer simulation (Park Supp. Note 2) is out of scope here.
-
-Status (2026-10-13): validated on simulated reads, and on two real GEO series at 10 kb. H1 PEG rep2:
-r = 0.995 with GEO in uniquely mapping bins and 0.964 over all bins. H1 spermine rep2, nine
-titration points: r = 0.94–0.98, no offset at any point. The differences are where
-multi-mapping reads land, most likely because Park used another index (`geo_test/step0/README.md`).
-hg38 is installed; mm10 is not.
-
-## Layout
-
-```
-condense-seq-pipeline/
-├── condseq/                  Python package, one module per group of stages
-│   ├── fragments.py          BAM -> fragments with Park's read filters
-│   ├── counts.py             bincount, coverage, peaks, ncpcov, bindata
-│   ├── score.py              score, numbers, concatenate
-│   ├── fit.py                c½ logistic fit
-│   ├── titration.py          titration table reader (ours, or Park's 10-column format)
-│   ├── gtab.py               the gtab table format, chromosome order, Python 2 number formatting
-│   └── cli.py                `python -m condseq <stage>`
-├── workflow/Snakefile        sample sheet -> GEO-format tables
-├── workflow/profiles/slurm/  Snakemake profile: one Slurm job per step
-├── config/config.example.yaml
-├── env/                      conda env `condseq` (spec + lock)
-├── slurm/                    env build, reference setup
-├── tools/                    titration tables from Park's Source Data
-├── geo_test/                 real-data checks against GEO (steps 0 and 1 done)
-└── tests/
-    ├── test_units.py         small hand-checked cases (pytest)
-    ├── simulate.py           synthetic experiment with a known answer
-    ├── run_synthetic.sbatch  simulate + run the whole workflow
-    ├── check_truth.py        compare outputs with the simulated truth
-    └── equivalence/          run Park's Python 2 scripts on the same BAMs and compare
-```
-Everything large goes to lab storage:
-- outputs: `../lab/outputs/condense-seq-pipeline/<run>/`
-- references: `../lab/data/ref/`
-- logs: `../lab/logs/condseq_pipeline/`
-
-## Stages
-
-`<name>` is `<cell>_<sample>_<agent>_<tnum>_<rep>rep[_deep]`, the GEO naming; `tnum` 0 is the input.
-
-| Step (rule) | Port of | GEO-run settings | Output |
-|---|---|---|---|
-| align | `bowtie-submit` | bowtie2 end-to-end, `--trim-to 50`, paired; then sorted + indexed | `bam/<name>.bam` |
-| bincount | `bincount_ver3.py` | `-w 1000` / `-w 10000 --gc --tlen`, no length filter | `bin/<name>_<kb>_bin.gtab.gz` |
-| score_bin | `NCPscore_ver4.py --numc` | each titration point vs its input | `score/<name>_<kb>_score.gtab.gz` |
-| table_bin | `concat_gtab.py` | one column per titration point | **`tables/<series>_<kb>_score.gtab.gz`** |
-| peaks | `NCPpeak_ver3.py` | input only, deep only, 126–184 bp fragments, 147 bp nucleosome, ≤ 40 bp overlap | `peaks/<input>_<chr>_peak.gtab.gz` |
-| areas | `coverage_ver3.py` + `NCPcov_ver3.py` + `bindata_ver3.py` | all fragment lengths; 171 bp per dyad (`--Nlen 171`); windows 171 bp / 25 bp | `areas/<name>_<chr>_Ncov…`, `…_171win25step_Bdata…` |
-| score_ncov | `NCPscore_ver4.py --numc` | normalized over all chromosomes | `score/<name>_<chr>_score.gtab.gz` |
-| table_ncov | `concat_gtab.py` | per chromosome (GEO's `*_deep_score.tar.gz` content) | **`tables/<series>_score/<series>_<chr>_score.gtab.gz`** |
-| num_bin, table_num | `NCPnum_ver2.py`, `concat_gtab.py` | 1.6×10¹² input nucleosomes × agent scale (Ca: 5) | `tables/<series>_10kb_num.gtab.gz` |
-| fit | `logistic_fit_ver3.py` | 10 kb, series with ≥ 5 points; sigmoid; differential evolution (seed 3); top = 1, bottom = 0, rate 0–100; R² ≥ 0.5 | **`tables/<series>_10kb_4PL.gtab.gz`** |
-
-`<series>` is `<cell>_<sample>_<agent>_<rep>rep[_deep]`.
-
-**The score**, per bin or dyad, at a titration point with soluble fraction *f*:
-−ln[(s+1)/Σ(s+1) ÷ (c+1)/Σ(c+1)] − ln f.
-- *s* is the supernatant count and *c* the input count.
-- The sums run over rows with *c* > 0.
-- Rows whose input is 0 are dropped.
-
-**Details reproduced on purpose:**
-- **Reads:**
-  - Each fragment is counted once, from its forward-strand read.
-  - Kept: proper pairs, mate mapped, edit distance ≤ 10.
-  - **No MAPQ filter and no duplicate removal.**
-- **Fragment centre:** even fragment lengths go to the left centre base in `bincount`; `NCPpeak` splits them 0.5/0.5.
-- **Peak caller:** greedy and unsmoothed. Tied dyad counts are ordered exactly as Python 2 sorted them. The original's comparator never returns "equal", and Python 3.6 and 3.12 were checked to reproduce Python 2.7's order through `cmp_to_key`. `--fast` uses a plain tie rule instead.
-- **Text output:** numbers are rounded and printed as Python 2 did (round half away from zero; `%.12g`).
-- **Not ported:** `bowtie-submit_ver2`, which the GEO driver calls, is missing from Park's repo. The align step uses `bowtie-submit`'s command with the driver's `trim_to = 50`.
-
-## Departures (opt-in, config keys)
-
-| Key | Default (= Park) | Why you might change it |
-|---|---|---|
-| `reads.min_mapq` | 0 (no filter) | where a multi-mapper lands depends on the index (`geo_test/step0/`); e.g. 10 or 30 removes them |
-| `reads.dedup` | false | drop fragments with identical start and length |
-| `score.missing_as_nan` | false | write bins without input reads as NA instead of dropping them |
-| `peaks --fast` (CLI only) | off | faster tie order; can pick different dyads among equal counts |
-
-Sliding-window (`Bdata`) areas are computed, but not scored by default (GEO didn't publish them).
-Run `python -m condseq score` on them if needed.
-
-## Validation (synthetic data, 2026-10-07)
-
-`tests/simulate.py` builds a 600 kb genome, as shown in this tree:
-```
-synthetic genome (600 kb)
-├── 3 chromosomes
-├── a duplicated 2 kb segment     (multi-mappers)
-└── a 5 kb N gap                  (bins without reads)
-3,127 nucleosomes, each with a known c½ in 60 kb domains
-reads: paired 50 bp
-├── shallow series: 6 titration points, 40k pairs each
-└── deep: 3 points, 150k pairs each
-```
-
-**1. Against Park's original scripts** (`tests/equivalence/`, job 51109796). Park's Python 2
-scripts were run on the same BAMs with the GEO run's arguments:
-
-| Stage | Files | Rows identical | Text-identical cells |
-|---|---|---|---|
-| bincount | 18 | 18/18 | 17,820/17,820 |
-| score (bins) | 14 | 14/14 | 4,585/4,585 |
-| coverage | 9 | 9/9 | 1,758,580/1,758,580 |
-| ncov | 9 | 9/9 | 9,381/9,381 |
-| bindata | 9 | 9/9 | 71,307/71,307 |
-| score (nucleosomes) | 6 | 6/6 | 6,254/6,254 |
-| peaks | 3 | 3/3 | 3,127/3,127 |
-| num | 6 | 6/6 | 360/360 |
-| fit (4PL) | 1 | 1/1 | 420/420 |
-
-**2. Against the simulated truth** (`tests/check_truth.py`):
-
-| Output | Pearson r with truth |
-|---|---|
-| 10 kb scores | 0.98–0.998 (points 2–5); 0.80 at point 1, where only 8% of nucleosomes have left |
-| 1 kb deep scores | 0.96–0.99 |
-| Per-nucleosome scores | 0.89–0.95; 3,118 of 3,127 called dyads within 20 bp of a true one |
-| c½ (10 kb) | 0.991, mean error 0.011 mM |
-
-**Real reads:** see "Validate on GEO" below.
-
-Re-run the validation:
 ```bash
-cd ~/condense-seq/condense-seq-pipeline
-sbatch tests/run_synthetic.sbatch                   # ~1 min of work
-sbatch tests/equivalence/run_original.sbatch        # ~2 min; prints the comparison table
-mamba activate condseq && python -m pytest tests/test_units.py
-python tests/check_truth.py ../lab/outputs/condense-seq-pipeline/synthetic
+git clone git@github.com:williamfli/condense-seq-pipeline.git
+cd condense-seq-pipeline
+mamba env create -f environment.yml      # bowtie2, samtools, snakemake, python packages
+mamba activate condseq
+pip install -e .
 ```
 
-## Running on real data
+## Run
 
-1. **Env** (once): `sbatch slurm/00_make_env.sbatch` builds `condseq` on holylabs. It's already built.
-2. **References** (once): `sbatch slurm/10_reference.sbatch hg38` (or `mm10`) puts the genome and its
-   bowtie2 index in `../lab/data/ref/`. hg38 is installed (2026-10-12, ~7 GB); mm10 is not.
-   Park used the 4DN references; see the script's header.
-3. **Sample sheet** (`samples.tsv`, tab-separated), one row per library:
-   ```
-   cell  sample  agent  tnum  rep  depth    fastq1                      fastq2
-   H1    NCP     sp     0     1    deep     fastq/a_R1.fastq.gz         fastq/a_R2.fastq.gz
-   H1    NCP     sp     8     1    deep     fastq/b_R1.fastq.gz         fastq/b_R2.fastq.gz
-   H1    NCP     sp     1     1    shallow  fastq/c_L1_R1.fastq.gz,fastq/c_L2_R1.fastq.gz  ...
-   ```
-   - `depth` is `deep` or `shallow`.
-   - Each series (cell, sample, agent, rep, depth) needs its input, `tnum 0`.
-   - List several lanes comma-separated.
-4. **Titration table** per (cell, sample, agent): `titration/<cell>_<sample>_<agent>.tsv` with columns
-   `tnum  conc  survival_fraction` (tnum 0 → conc 0, fraction 1).
-   - The survival fraction is the measured soluble fraction (UV-Vis) at that point.
-   - **It sets the score offset (−ln f), so it must come from the experiment.**
-   - Park's 10-column format is also read.
-   - **For the GEO samples,** Park's titration measurements are in the paper's Source Data (Fig. 1b,
-     ED Figs. 3d, 7c, 8a, 10a). `tools/titration_from_source_data.py` turns them into tables for all
-     20 published series, already in `../lab/data/park2025/titration/`.
-5. **Config**: copy `config/config.example.yaml` next to the sample sheet, set `genomes`, `cells`, paths.
-6. **Run** (from `condense-seq-pipeline/`, in the `condseq` env):
-   ```bash
-   snakemake -s workflow/Snakefile --configfile /path/config.yaml \
-             --directory ../lab/outputs/condense-seq-pipeline/<run> --profile workflow/profiles/slurm -n   # dry run
-   # then the same without -n; Snakemake resumes where it stopped
-   ```
-   Rules ask for 2–24 GB and up to 24 h (alignment); measured sizes are noted in the Snakefile, and
-   memory doubles on the retry after an out-of-memory failure. The heaviest step on deep human data is
-   `peaks`, about 20 M candidate dyads on chr1.
+```bash
+condseq reference hg38 ~/refs            # once: hg38 FASTA + bowtie2 index (~7 GB)
+condseq init myexp                       # writes myexp/config.yaml, samples.tsv, titration/
+# edit the three files (below), then:
+condseq run myexp/config.yaml --cores 8  # results in myexp/results/
+```
 
-### Validate on GEO (first thing to do with real reads)
+On a Slurm cluster, each step can run as its own job. The controller is light but runs for the
+whole workflow, so start it as a small job too:
 
-`geo_test/` re-runs GEO samples from their raw reads and compares the tables. The manifest,
-download script, sample sheets, configs and comparison script are there, in three steps:
-- 1.3 GB: H1 PEG, 10 kb
-- 8.8 GB: H1 spermine, shallow, 10 kb + c½
-- ~57 GB: H1 spermine, deep, per nucleosome
+```bash
+sbatch -c 1 --mem 4G -t 3-00:00 --wrap \
+  "condseq run myexp/config.yaml --slurm --account mylab --partition shared"
+```
 
-Step 0 done 2026-10-13: no offset; r = 0.995 in uniquely mapping bins, 0.964 overall. Write-up in
-`geo_test/step0/README.md`. Step 1 done 2026-10-13: no offset at any of nine points, r = 0.94–0.98;
-c½ fit converges in 99.9% of bins (`geo_test/README.md`).
+`condseq run ... -n` shows what would run. Re-running the same command resumes after an
+interruption.
+
+## Inputs
+
+**`samples.tsv`**: one row per library, tab-separated.
+
+| column | meaning |
+|---|---|
+| `cell`, `sample`, `agent` | e.g. `H1`, `NCP`, `sp` (spermine); `cell` must be listed under `cells:` in the config |
+| `tnum` | titration point; `0` is the input |
+| `rep` | replicate number |
+| `depth` | `deep` (also gives per-nucleosome scores) or `shallow` |
+| `fastq1`, `fastq2` | read 1 and read 2; several lanes comma-separated |
+
+A *series* is one cell, sample, agent, rep and depth. Each series needs its input (`tnum` 0).
+
+**`titration/<cell>_<sample>_<agent>.tsv`**: the measured soluble fraction at each point.
+
+```
+tnum  conc   survival_fraction
+0     0      1.0
+8     0.794  0.105
+```
+
+`survival_fraction` (*f*) is the fraction of nucleosomes left in the supernatant (e.g. by UV-Vis).
+It sets the score offset (−ln *f*), so it must come from the experiment. `conc` is used for the
+c½ fit.
+
+**`config.yaml`**: where the samples, titration tables and genomes are, and which genome each cell
+uses. Relative paths are read relative to the config file.
+
+## Outputs (`results/`)
+
+| file | content |
+|---|---|
+| `tables/<series>_1kb_score.gtab.gz`, `_10kb_` | condensability score per bin, one column per titration point |
+| `tables/<series>_score/<series>_<chr>_score.gtab.gz` | per-nucleosome scores (deep series) |
+| `tables/<series>_10kb_num.gtab.gz`, `_10kb_4PL.gtab.gz` | nucleosome numbers and c½ fit (series with ≥ 5 points) |
+| `qc/report.html` | QC figures and tables; `qc/flags.tsv` lists anything outside the expected range |
+| `bam/` | alignments (can be deleted once the tables are made) |
+
+Score at a titration point with soluble fraction *f*, for supernatant count *s* and input count *c*:
+−ln[(s+1)/Σ(s+1) ÷ (c+1)/Σ(c+1)] − ln *f*. Higher means more condensable.
+
+## QC
+
+Set `qc:` in the config, or `--qc` on the command line:
+
+| level | contents |
+|---|---|
+| `off` | none |
+| `default` | reads, alignment rate, multi-mapping share, fragment lengths, titration, score distributions, score vs input and supernatant counts, c½ fit success, nucleosome count and spacing (deep), replicate agreement |
+| `verbose` | adds duplicate rate, GC dependence, a chromosome-wide score profile, dinucleotide periodicity at nucleosome dyads |
+
+Several checks follow the paper's Extended Data Fig. 2 (fragment lengths, input vs supernatant,
+dinucleotide periodicity, replicate correlation). Flags are warnings only and never stop a run.
+To change a threshold:
+
+```yaml
+qc_thresholds: {min_replicate_rho: 0.7, max_lowmapq_fraction: 0.2}
+```
+
+The thresholds and their meanings are listed at the end of the report.
+
+## Settings
+
+The defaults reproduce the GEO tables. These keys can be added to the config:
+
+| key | default | |
+|---|---|---|
+| `threads` | 8 | bowtie2 threads per sample |
+| `bin_sizes` | `[1000, 10000]` | |
+| `reads: {min_mapq: 0}` | no MAPQ filter, as Park | e.g. 10 drops multi-mapping reads, whose placement depends on the genome index |
+| `reads: {dedup: false}` | duplicates kept, as Park | |
+| `reads: {mm: 10}` | max. edit distance | |
+| `score: {missing_as_nan: false}` | bins without input reads are dropped | `true` writes them as NA |
+| `mscale` | `{Ca: 5}`, others 1 | molecule-number scale per agent |
+| `fit` | sigmoid, ≥ 5 points, 10 kb, R² ≥ 0.5 | |
+| `trim_to` | 50 | reads are trimmed to 50 bp before alignment |
+
+## Tests
+
+```bash
+pytest tests/test_units.py
+bash tests/synthetic/run.sh /tmp/condseq-test      # simulated experiment, ~1 min
+python tests/synthetic/check_truth.py /tmp/condseq-test
+```
+
+`tests/equivalence/run.sh` runs the authors' original Python 2 scripts on the same simulated reads
+and compares every table. See [docs/details.md](docs/details.md) for the processing steps and
+validation.
