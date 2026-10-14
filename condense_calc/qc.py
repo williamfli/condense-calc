@@ -43,7 +43,8 @@ THRESHOLDS = {
 
 
 def tnum_of(name):
-    m = NAME_RE.search(name)
+    """Titration point of a library name: GEO style (…_<tnum>_<rep>rep[_deep]) or sheet style (…_<point>)."""
+    m = NAME_RE.search(name) or re.search(r'_(\d+)$', name)
     return int(m.group(1)) if m else None
 
 

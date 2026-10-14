@@ -2,8 +2,9 @@
 import math
 
 import numpy as np
+import pytest
 
-from condense_calc import counts, gtab, score
+from condense_calc import counts, gtab, score, sheet
 from condense_calc.fragments import Fragments
 
 
@@ -90,3 +91,28 @@ def test_concatenate_stream_matches_memory(tmp_path):
     assert not score._sorted_unique(tmp_path / 'c.gtab.gz')
     h, r = score.concatenate([tmp_path / 'c.gtab.gz', paths[0]])
     assert [x[0] for x in r] == ['chr1', 'chr2', 'chr10', 'chrX']
+
+
+def test_mate_of():
+    assert sheet.mate_of('a/x_S1_L001_R1_001.fastq.gz') == 'a/x_S1_L001_R2_001.fastq.gz'
+    assert sheet.mate_of('SRR1_1.fastq.gz') == 'SRR1_2.fastq.gz'
+    with pytest.raises(sheet.SheetError):
+        sheet.mate_of('reads.fastq.gz')
+
+
+def test_simple_sheet(tmp_path):
+    for n in ['in', 'a_L1', 'a_L2', 'b']:
+        for r in (1, 2):
+            (tmp_path / f'{n}_R{r}.fastq.gz').touch()
+    (tmp_path / 's.tsv').write_text('series\tconc\tfraction\tfastq\n'
+                                    'X\t0\t\tin_R1.fastq.gz\n'
+                                    'X\t0.5\t0.4\ta_L*_R1.fastq.gz\n'
+                                    'X\t0.2\t0.9\tb_R1.fastq.gz\n')
+    S = sheet.read_simple(tmp_path / 's.tsv', 'hg38', workdir=tmp_path / 'run')
+    assert list(S.index) == ['X_0', 'X_1', 'X_2']
+    assert S.loc['X_2', 'fastq1'].count(',') == 1 and S.loc['X_2', 'fastq2'].endswith('a_L2_R2.fastq.gz')
+    assert (tmp_path / 'run/titration/X.tsv').read_text() == \
+        'tnum\tconc\tsurvival_fraction\n0\t0\t1\n1\t0.2\t0.9\n2\t0.5\t0.4\n'
+    (tmp_path / 's.tsv').write_text('series\tconc\tfraction\tfastq\nX\t0.5\t1.4\tb_R1.fastq.gz\n')
+    with pytest.raises(sheet.SheetError, match='fraction'):
+        sheet.read_simple(tmp_path / 's.tsv', 'hg38', workdir=tmp_path / 'run')

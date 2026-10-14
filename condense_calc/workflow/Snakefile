@@ -1,5 +1,5 @@
 # condense-seq: paired-end reads -> condensability tables (GEO GSE252941 format) and QC.
-# Usually started by `condense-calc run` (see README); it can also be run with snakemake directly:
+# Usually started by `condense` (see README), which writes the config; it can also be run directly:
 #   snakemake -s condense_calc/workflow/Snakefile --configfile config.yaml --directory OUTDIR --cores 8
 # Relative paths in the config are read relative to the config file's folder.
 import re
@@ -35,7 +35,11 @@ NAN_OPT = '--missing-as-nan' if cfg('score', {}).get('missing_as_nan', False) el
 QC = str(cfg('qc', 'default')).lower()
 assert QC in ('off', 'default', 'verbose'), f'qc must be off, default or verbose, not {QC!r}'
 
-# ---------------------------------------------------------------- genomes and cells
+# ---------------------------------------------------------------- genomes and samples
+import sys
+sys.path.insert(0, str(PKG_PARENT))
+from condense_calc import sheet
+
 GENOMES = {g: {'fasta': P(v['fasta']), 'bowtie2_index': P(v['bowtie2_index'])}
            for g, v in config['genomes'].items()}
 
@@ -49,24 +53,18 @@ def default_chroms(fasta):
     return [n for n in names if re.fullmatch(r'(chr)?([0-9]+|X|Y)', n)]
 
 
-CELLS = {}
-for cell, v in config['cells'].items():
-    v = {'genome': v} if isinstance(v, str) else dict(v)
+if 'sheet' in config:       # sample sheet (condense init); one genome
+    CELLS = {config['genome']: {'genome': config['genome'], 'chroms': config.get('chroms')}}
+    SAMPLES = sheet.read_simple(P(config['sheet']), config['genome'],
+                                nucleosomes=config.get('nucleosomes', False))
+else:                       # GEO-style config: samples + titration_dir + cells
+    CELLS = {c: ({'genome': v} if isinstance(v, str) else dict(v)) for c, v in config['cells'].items()}
+    SAMPLES = sheet.read_config_sheet(config['samples'], cfg('titration_dir', 'titration'), P)
+for v in CELLS.values():
     v['chroms'] = list(v.get('chroms') or default_chroms(GENOMES[v['genome']]['fasta']))
-    CELLS[cell] = v
-
-# ---------------------------------------------------------------- sample sheet
-S = pd.read_csv(P(config['samples']), sep='\t', dtype=str, comment='#').fillna('')
-S['tnum'] = S['tnum'].astype(int)
-S['deep'] = S['depth'].str.lower().eq('deep')
-DEEP_SUFFIX = S['deep'].map({True: '_deep', False: ''})
-S['series'] = S['cell'] + '_' + S['sample'] + '_' + S['agent'] + '_' + S['rep'] + 'rep' + DEEP_SUFFIX
-S['name'] = (S['cell'] + '_' + S['sample'] + '_' + S['agent'] + '_' + S['tnum'].astype(str)
-             + '_' + S['rep'] + 'rep' + DEEP_SUFFIX)
-assert S['name'].is_unique, 'duplicate cell/sample/agent/tnum/rep/depth rows in the sample sheet'
-for c in sorted(set(S['cell']) - set(CELLS)):
+for c in sorted(set(SAMPLES['cell']) - set(CELLS)):
     raise ValueError(f'cell {c!r} is in the sample sheet but not under cells: in the config')
-SAMPLES = S.set_index('name')
+S = SAMPLES.reset_index()
 SERIES = {s: g.sort_values('tnum') for s, g in S.groupby('series')}
 for s, g in SERIES.items():
     assert (g['tnum'] == 0).any(), f'series {s} has no input (tnum 0)'
@@ -95,8 +93,7 @@ def points(series):
 
 
 def titration_of(series):
-    r = SERIES[series].iloc[0]
-    return P(Path(cfg('titration_dir', 'titration')) / f"{r['cell']}_{r['sample']}_{r['agent']}.tsv")
+    return SERIES[series].iloc[0]['titration']
 
 
 ALL_CHROMS = sorted({c for v in CELLS.values() for c in v['chroms']})
@@ -107,9 +104,7 @@ FIT_SERIES = [s for s, g in SERIES.items() if FIT_KB and len(g) >= int(FIT['min_
 # replicate groups: series that differ only in rep
 REP_GROUPS = {}
 for s, g in SERIES.items():
-    r = g.iloc[0]
-    key = f"{r['cell']}_{r['sample']}_{r['agent']}" + ('_deep' if r['deep'] else '')
-    REP_GROUPS.setdefault(key, []).append(s)
+    REP_GROUPS.setdefault(g.iloc[0]['group'], []).append(s)
 REP_GROUPS = {k: sorted(v) for k, v in REP_GROUPS.items() if len(v) >= 2}
 QC_KB = KB[max(BINS)]
 
