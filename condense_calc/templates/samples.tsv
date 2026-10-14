@@ -1,3 +1,0 @@
-cell	sample	agent	tnum	rep	depth	fastq1	fastq2
-H1	NCP	sp	0	1	deep	fastq/input_R1.fastq.gz	fastq/input_R2.fastq.gz
-H1	NCP	sp	8	1	deep	fastq/sp8_L1_R1.fastq.gz,fastq/sp8_L2_R1.fastq.gz	fastq/sp8_L1_R2.fastq.gz,fastq/sp8_L2_R2.fastq.gz

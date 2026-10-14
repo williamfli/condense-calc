@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "condense-calc"
-version = "0.2.0"
+version = "0.3.0"
 description = "condense-seq raw reads to condensability tables, with QC"
 requires-python = ">=3.10"
 dependencies = ["numpy", "pandas", "scipy", "pysam", "sortedcontainers", "matplotlib", "pyyaml"]
@@ -17,4 +17,4 @@ condense = "condense_calc.cli:main"
 packages = ["condense_calc"]
 
 [tool.setuptools.package-data]
-condense_calc = ["workflow/Snakefile", "templates/*", "get_reference.sh"]
+condense_calc = ["workflow/Snakefile", "get_reference.sh"]

@@ -1,20 +1,23 @@
 """condense-seq reads -> condensability tables.
 
-  condense-calc init DIR            write a config, sample sheet and titration template into DIR
-  condense-calc reference hg38 DIR  download a genome and its bowtie2 index
-  condense-calc run CONFIG          run the whole workflow (locally or on Slurm)
+  condense init FASTQ_DIR      write a sample sheet listing the FASTQ files (fill in conc, fraction)
+  condense SHEET               run everything: alignment, scores, c-half fit, QC report
+  condense SHEET --slurm       the same, each step as a Slurm job
 
 The other subcommands are single pipeline stages, called by the workflow."""
 import argparse
 import json
-import shutil
+import os
+import shlex
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pysam
+import yaml
 
-from . import counts, fit, fragments, gtab, qc, score, titration
+from . import counts, fit, fragments, gtab, qc, reference, score, sheet, titration
 
 PKG = Path(__file__).resolve().parent
 
@@ -115,27 +118,86 @@ def cmd_fit(args):
 
 
 def cmd_init(args):
-    out = Path(args.dir)
-    (out / 'titration').mkdir(parents=True, exist_ok=True)
-    t = PKG / 'templates'
-    for src, dst in [('config.yaml', 'config.yaml'), ('samples.tsv', 'samples.tsv'),
-                     ('titration.tsv', 'titration/H1_NCP_sp.tsv')]:
-        if (out / dst).exists():
-            print(f'kept existing {out / dst}')
-        else:
-            shutil.copy(t / src, out / dst)
-            print(f'wrote {out / dst}')
+    out = Path(args.out)
+    if out.exists() and not args.force:
+        sys.exit(f'{out} exists; use --force to overwrite')
+    fastqs = sheet.find_fastqs(args.dirs) if args.dirs else []
+    if args.dirs and not fastqs:
+        sys.exit(f'no read-1 FASTQ files (*_R1*.fastq.gz, *_1.fastq.gz) in {" ".join(args.dirs)}')
+    lines = ['# One row per read-1 FASTQ (read 2 is found by name). Rows with the same series and conc are',
+             '# lanes of one library. conc: agent concentration, 0 for the input. fraction: soluble fraction',
+             '# measured at that concentration (input: 1). Optional columns: rep, agent, fastq2.',
+             'series\tconc\tfraction\tfastq']
+    if fastqs:
+        here = out.resolve().parent
+        lines += [f'{args.series}\t\t\t{f.resolve().relative_to(here) if f.resolve().is_relative_to(here) else f.resolve()}'
+                  for f in fastqs]
+    else:
+        lines += [f'{args.series}\t0\t1\treads/input_R1.fastq.gz',
+                  f'{args.series}\t0.794\t0.105\treads/sp8_L001_R1.fastq.gz',
+                  f'{args.series}\t0.794\t0.105\treads/sp8_L002_R1.fastq.gz']
+    out.write_text('\n'.join(lines) + '\n')
+    print(f'wrote {out}' + (f' with {len(fastqs)} FASTQ files; fill in conc and fraction' if fastqs else ''))
 
 
 def cmd_reference(args):
-    Path(args.outdir).mkdir(parents=True, exist_ok=True)
-    sys.exit(subprocess.call(['bash', str(PKG / 'get_reference.sh'), args.outdir, str(args.threads),
-                              *args.genomes]))
+    for g in args.genomes:
+        print('\t'.join(reference.ensure(g, args.refs, args.threads)))
+
+
+def _check(src):
+    with tempfile.TemporaryDirectory() as tmp:
+        sheet.read_simple(src, 'check', workdir=tmp)
+
+
+def _workflow_config(args, out):
+    """Config for the workflow; a sample sheet becomes condense.yaml in the output folder."""
+    src = Path(args.sheet).resolve()
+    if src.suffix in ('.yaml', '.yml'):
+        return src
+    _check(src)                                                      # fail early, before any job starts
+    name, fasta, index = reference.ensure(args.genome, args.refs, args.cores)
+    cfg = yaml.safe_load(Path(args.settings).read_text()) if args.settings else {}
+    cfg.update(sheet=str(src), genome=name, genomes={name: {'fasta': fasta, 'bowtie2_index': index}},
+               nucleosomes=args.nucleosomes)
+    path = out / 'condense.yaml'
+    text = yaml.safe_dump(cfg, sort_keys=False)
+    if not path.exists() or path.read_text() != text:
+        path.write_text(text)
+    return path
+
+
+def _submit_controller(args, out):
+    """Run this command as a small Slurm job that submits and watches the steps."""
+    argv = [sys.executable, '-m', 'condense_calc', *sys.argv[1:]]
+    # controller: 1 core, < 1 GB; it runs as long as the whole workflow
+    cmd = ['sbatch', '--parsable', '-J', 'condense', '-c', '1', '--mem', '2G', '-t', args.time,
+           '-o', str(out / 'condense_%j.log')]
+    cmd += ['-A', args.account] if args.account else []
+    cmd += ['-p', args.partition] if args.partition else []
+    cmd += ['--wrap', shlex.join(argv)]
+    job = subprocess.run(cmd, check=True, capture_output=True, text=True).stdout.strip()
+    print(f'Submitted job {job}. Progress: {out}/condense_{job}.log\n'
+          f'Results will be in {out}/tables and {out}/qc/report.html')
 
 
 def cmd_run(args):
-    cfg = Path(args.config).resolve()
-    out = Path(args.outdir).resolve() if args.outdir else cfg.parent / 'results'
+    src = Path(args.sheet).resolve()
+    if not src.exists():
+        sys.exit(f'{args.sheet} not found')
+    out = Path(args.outdir).resolve() if args.outdir else src.parent / 'results'
+    out.mkdir(parents=True, exist_ok=True)
+    if args.slurm and not args.dry_run and 'SLURM_JOB_ID' not in os.environ:
+        if src.suffix not in ('.yaml', '.yml'):
+            try:
+                _check(src)
+            except sheet.SheetError as e:
+                sys.exit(str(e))
+        return _submit_controller(args, out)
+    try:
+        cfg = _workflow_config(args, out)
+    except sheet.SheetError as e:
+        sys.exit(str(e))
     cmd = ['snakemake', '-s', str(PKG / 'workflow' / 'Snakefile'), '--configfile', str(cfg),
            '--directory', str(out), '--rerun-incomplete']
     if args.qc:
@@ -150,14 +212,18 @@ def cmd_run(args):
         cmd += ['--cores', str(args.cores)]
     if args.dry_run:
         cmd.append('--dry-run')
+    if args.quiet:
+        cmd += ['--quiet', 'rules']
     cmd += args.snakemake_args
     print('+ ' + ' '.join(cmd), flush=True)
     rc = subprocess.call(cmd)
     flags = out / 'qc' / 'flags.tsv'
-    if rc == 0 and not args.dry_run and flags.exists():
-        n = sum(1 for _ in open(flags)) - 1
-        print(f'\nTables: {out / "tables"}\nQC report: {out / "qc" / "report.html"} '
-              f'({n} flag{"s" if n != 1 else ""}; see {flags})')
+    if rc == 0 and not args.dry_run:
+        msg = f'\nTables: {out / "tables"}'
+        if flags.exists():
+            n = sum(1 for _ in open(flags)) - 1
+            msg += f'\nQC report: {out / "qc" / "report.html"} ({n} flag{"s" if n != 1 else ""}; see {flags})'
+        print(msg)
     sys.exit(rc)
 
 
@@ -188,30 +254,41 @@ def cmd_qc_report(args):
 
 
 def main(argv=None):
-    p = argparse.ArgumentParser(prog='condense-calc', description=__doc__,
+    p = argparse.ArgumentParser(prog='condense', description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest='cmd', required=True)
 
-    s = sub.add_parser('init', help='write a config, sample sheet and titration template')
-    s.add_argument('dir')
+    s = sub.add_parser('init', help='write a sample sheet listing the FASTQ files in some folders')
+    s.add_argument('dirs', nargs='*', help='folders with FASTQ files (none: write an example sheet)')
+    s.add_argument('-o', '--out', default='samples.tsv', help='sheet to write (default samples.tsv)')
+    s.add_argument('--series', default='series1', help='series name to fill in (default series1)')
+    s.add_argument('--force', action='store_true', help='overwrite an existing sheet')
     s.set_defaults(func=cmd_init)
 
-    s = sub.add_parser('reference', help='download a genome (FASTA + bowtie2 index)')
-    s.add_argument('genomes', nargs='+', choices=['hg38', 'mm10'])
-    s.add_argument('outdir')
-    s.add_argument('--threads', type=int, default=1, help='for building the mm10 index')
+    s = sub.add_parser('reference', help='download a genome (FASTA + bowtie2 index); run does this when needed')
+    s.add_argument('genomes', nargs='+', help='hg38, mm10, or a FASTA file')
+    s.add_argument('--refs', help='where genomes are kept (default $CONDENSE_REFS, else ~/.cache/condense-calc)')
+    s.add_argument('--threads', type=int, default=1, help='for building an index (mm10, own FASTA)')
     s.set_defaults(func=cmd_reference)
 
-    s = sub.add_parser('run', help='run the workflow',
-                       description='Run the workflow. Arguments after -- go to snakemake.')
-    s.add_argument('config')
-    s.add_argument('-o', '--outdir', help='output folder (default: results/ next to the config)')
-    s.add_argument('--qc', choices=['off', 'default', 'verbose'], help='QC level (default: the config, else default)')
-    s.add_argument('--cores', type=int, default=4, help='local run: cores to use (default 4)')
+    s = sub.add_parser('run', help='run everything (the default command)',
+                       description='Run everything. Arguments after -- go to snakemake.')
+    s.add_argument('sheet', help='sample sheet (condense init), or a config.yaml for multi-genome runs')
+    s.add_argument('-o', '--outdir', help='output folder (default: results/ next to the sheet)')
+    s.add_argument('-g', '--genome', default='hg38', help='hg38 (default), mm10, or a FASTA file')
+    s.add_argument('--refs', help='where genomes are kept (default $CONDENSE_REFS, else ~/.cache/condense-calc)')
+    s.add_argument('--nucleosomes', action='store_true',
+                   help='also score every nucleosome (for deeply sequenced series; slower)')
+    s.add_argument('--qc', choices=['off', 'default', 'verbose'], help='QC level (default: default)')
+    s.add_argument('--settings', help='YAML file with further settings (see README)')
+    s.add_argument('--cores', type=int, default=int(os.environ.get('SLURM_CPUS_PER_TASK') or os.cpu_count() or 4),
+                   help='local run: cores to use (default: all)')
     s.add_argument('--slurm', action='store_true', help='submit each step as a Slurm job')
     s.add_argument('--account', help='Slurm account')
     s.add_argument('--partition', help='Slurm partition(s), e.g. shared or shared,sapphire')
+    s.add_argument('--time', default='3-00:00', help='Slurm: time limit of the controlling job (default 3 days)')
     s.add_argument('--jobs', type=int, default=100, help='Slurm: max jobs at once (default 100)')
+    s.add_argument('-q', '--quiet', action='store_true', help='less progress output')
     s.add_argument('-n', '--dry-run', action='store_true', help='show what would run')
     s.set_defaults(func=cmd_run)
 
@@ -339,6 +416,8 @@ def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     extra = argv[argv.index('--') + 1:] if '--' in argv else []     # `condense-calc run ... -- <snakemake args>`
     argv = argv[:argv.index('--')] if '--' in argv else argv
+    if argv and not argv[0].startswith('-') and argv[0] not in sub.choices:
+        argv = ['run'] + argv                                         # `condense SHEET` = `condense run SHEET`
     args = p.parse_args(argv)
     args.snakemake_args = extra
     args.func(args)
