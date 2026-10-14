@@ -1,6 +1,6 @@
 """Make a synthetic condense-seq experiment with a known answer, for testing the pipeline.
 
-    python tests/simulate.py OUTDIR [--seed 0]
+    python tests/synthetic/simulate.py OUTDIR [--seed 0]
 
 Writes into OUTDIR:
   ref/sim.fa (+ .fai, bowtie2 index ref/sim)   3 chromosomes, 600 kb, with a 2 kb segment

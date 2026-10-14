@@ -1,5 +1,4 @@
-# Env for condense-seq-pipeline (raw reads -> condensability tables, Python 3 port of Park 2025).
-# Build: sbatch slurm/00_make_env.sbatch  (from condense-seq-pipeline/)
+# mamba env create -f environment.yml && mamba activate condseq && pip install -e .
 name: condseq
 channels:
   - conda-forge
@@ -11,8 +10,11 @@ dependencies:
   - scipy=1.14
   - pysam=0.22
   - sortedcontainers=2.4
+  - matplotlib-base=3.9
+  - pyyaml
   - bowtie2=2.5
   - samtools=1.21
   - snakemake=8
   - snakemake-executor-plugin-slurm
   - pytest
+  - pip

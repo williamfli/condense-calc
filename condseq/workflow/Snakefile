@@ -1,88 +1,147 @@
-# condense-seq raw reads -> condensability tables (Park 2025 GEO run, ported to Python 3).
-#
-# Run from condense-seq-pipeline/, inside the `condseq` env:
-#   snakemake -s workflow/Snakefile --configfile <config.yaml> --directory <outdir> \
-#             --profile workflow/profiles/slurm          # or --cores 4 for a local run
-# Relative paths in the config resolve against the config file's folder. See README.md.
+# condense-seq: paired-end reads -> condensability tables (GEO GSE252941 format) and QC.
+# Usually started by `condseq run` (see README); it can also be run with snakemake directly:
+#   snakemake -s condseq/workflow/Snakefile --configfile config.yaml --directory OUTDIR --cores 8
+# Relative paths in the config are read relative to the config file's folder.
 import re
 from pathlib import Path
 
 import pandas as pd
 
-PIPE = Path(workflow.basedir).parent.resolve()
+PKG_PARENT = Path(workflow.basedir).parents[1]
 CFG_DIR = Path(workflow.configfiles[0]).parent.resolve()
 
 
 def P(p):
-    p = Path(str(p))
+    p = Path(str(p)).expanduser()
     return str(p if p.is_absolute() else (CFG_DIR / p).resolve())
 
 
-shell.prefix(f'export PYTHONPATH={PIPE}:$PYTHONPATH; set -euo pipefail; ')
+shell.prefix(f'export PYTHONPATH={PKG_PARENT}:$PYTHONPATH; set -euo pipefail; ')
 CONDSEQ = 'python -m condseq'
 
+# ---------------------------------------------------------------- settings
+# Defaults reproduce the processing of the Park et al. 2025 GEO tables (GSE252941).
+cfg = lambda key, default: config.get(key, default)
+TRIM = cfg('trim_to', 50)
+THREADS = cfg('threads', cfg('align_threads', 8))
+BINS = [int(b) for b in cfg('bin_sizes', [1000, 10000])]
+KB = {b: f'{b // 1000}kb' for b in BINS}
+MSCALE = {'Ca': 5, **cfg('mscale', {})}
+FIT = {'bin_size': 10000, 'min_tnum': 5, 'model': 'sigmoid', 'method': 'evolution', 'min_rsq': 0.5,
+       **cfg('fit', {})}
+READS = {'mm': 10, 'min_mapq': 0, 'dedup': False, **cfg('reads', {})}
+READ_OPTS = (f"--mm {READS['mm']} --min-mapq {READS['min_mapq']}" + (' --dedup' if READS['dedup'] else ''))
+NAN_OPT = '--missing-as-nan' if cfg('score', {}).get('missing_as_nan', False) else ''
+QC = str(cfg('qc', 'default')).lower()
+assert QC in ('off', 'default', 'verbose'), f'qc must be off, default or verbose, not {QC!r}'
+
+# ---------------------------------------------------------------- genomes and cells
+GENOMES = {g: {'fasta': P(v['fasta']), 'bowtie2_index': P(v['bowtie2_index'])}
+           for g, v in config['genomes'].items()}
+
+
+def default_chroms(fasta):
+    """Chromosomes 1-N, X and Y from the FASTA index (with or without the 'chr' prefix)."""
+    fai = Path(fasta + '.fai')
+    if not fai.exists():
+        raise ValueError(f'{fai} not found; run: samtools faidx {fasta}')
+    names = [line.split('\t')[0] for line in fai.read_text().splitlines()]
+    return [n for n in names if re.fullmatch(r'(chr)?([0-9]+|X|Y)', n)]
+
+
+CELLS = {}
+for cell, v in config['cells'].items():
+    v = {'genome': v} if isinstance(v, str) else dict(v)
+    v['chroms'] = list(v.get('chroms') or default_chroms(GENOMES[v['genome']]['fasta']))
+    CELLS[cell] = v
+
 # ---------------------------------------------------------------- sample sheet
-S = pd.read_csv(P(config['samples']), sep='\t', dtype=str).fillna('')
+S = pd.read_csv(P(config['samples']), sep='\t', dtype=str, comment='#').fillna('')
 S['tnum'] = S['tnum'].astype(int)
 S['deep'] = S['depth'].str.lower().eq('deep')
+DEEP_SUFFIX = S['deep'].map({True: '_deep', False: ''})
+S['series'] = S['cell'] + '_' + S['sample'] + '_' + S['agent'] + '_' + S['rep'] + 'rep' + DEEP_SUFFIX
 S['name'] = (S['cell'] + '_' + S['sample'] + '_' + S['agent'] + '_' + S['tnum'].astype(str)
-             + '_' + S['rep'] + 'rep' + S['deep'].map({True: '_deep', False: ''}))
-S['series'] = (S['cell'] + '_' + S['sample'] + '_' + S['agent'] + '_' + S['rep'] + 'rep'
-               + S['deep'].map({True: '_deep', False: ''}))
+             + '_' + S['rep'] + 'rep' + DEEP_SUFFIX)
 assert S['name'].is_unique, 'duplicate cell/sample/agent/tnum/rep/depth rows in the sample sheet'
+for c in sorted(set(S['cell']) - set(CELLS)):
+    raise ValueError(f'cell {c!r} is in the sample sheet but not under cells: in the config')
 SAMPLES = S.set_index('name')
 SERIES = {s: g.sort_values('tnum') for s, g in S.groupby('series')}
 for s, g in SERIES.items():
     assert (g['tnum'] == 0).any(), f'series {s} has no input (tnum 0)'
 
-def genome_of(name):
-    return config['genomes'][config['cells'][SAMPLES.loc[name, 'cell']]['genome']]
+
+def cell_of(name):
+    return CELLS[SAMPLES.loc[name, 'cell']]
+
+
+def fasta_of(name):
+    return GENOMES[cell_of(name)['genome']]['fasta']
+
 
 def chroms_of(name):
-    return config['cells'][SAMPLES.loc[name, 'cell']]['chroms']
+    return cell_of(name)['chroms']
+
 
 def input_of(name):
     g = SERIES[SAMPLES.loc[name, 'series']]
     return g.loc[g['tnum'] == 0, 'name'].item()
 
+
+def points(series):
+    """Sample names of a series' titration points (input excluded)."""
+    return list(SERIES[series].query('tnum > 0')['name'])
+
+
 def titration_of(series):
     r = SERIES[series].iloc[0]
-    return P(Path(config['titration_dir']) / f"{r['cell']}_{r['sample']}_{r['agent']}.tsv")
+    return P(Path(cfg('titration_dir', 'titration')) / f"{r['cell']}_{r['sample']}_{r['agent']}.tsv")
 
-BINS = [int(b) for b in config.get('bin_sizes', [1000, 10000])]
-KB = {b: f'{b // 1000}kb' for b in BINS}
-READS = config.get('reads', {})
-READ_OPTS = (f"--mm {READS.get('mm', 10)} --min-mapq {READS.get('min_mapq', 0)}"
-             + (' --dedup' if READS.get('dedup', False) else ''))
-NAN_OPT = '--missing-as-nan' if config.get('score', {}).get('missing_as_nan', False) else ''
-FIT = config.get('fit', {})
-ALL_CHROMS = sorted({c for cell in config['cells'].values() for c in cell['chroms']})
+
+ALL_CHROMS = sorted({c for v in CELLS.values() for c in v['chroms']})
+DEEP_SERIES = [s for s, g in SERIES.items() if g['deep'].all()]
+FIT_KB = KB.get(int(FIT['bin_size']))
+FIT_SERIES = [s for s, g in SERIES.items() if FIT_KB and len(g) >= int(FIT['min_tnum'])]
+
+# replicate groups: series that differ only in rep
+REP_GROUPS = {}
+for s, g in SERIES.items():
+    r = g.iloc[0]
+    key = f"{r['cell']}_{r['sample']}_{r['agent']}" + ('_deep' if r['deep'] else '')
+    REP_GROUPS.setdefault(key, []).append(s)
+REP_GROUPS = {k: sorted(v) for k, v in REP_GROUPS.items() if len(v) >= 2}
+QC_KB = KB[max(BINS)]
 
 wildcard_constraints:
     name='|'.join(map(re.escape, SAMPLES.index)),
     series='|'.join(map(re.escape, SERIES)),
     kb='|'.join(KB.values()),
     chrom='|'.join(map(re.escape, ALL_CHROMS)),
+    group='|'.join(map(re.escape, REP_GROUPS)) or 'NONE',
 
-DEEP_SERIES = [s for s, g in SERIES.items() if g['deep'].all()]
-FIT_SERIES = [s for s, g in SERIES.items() if len(g) >= int(FIT.get('min_tnum', 5))]
-FIT_KB = KB[int(FIT.get('bin_size', 10000))] if int(FIT.get('bin_size', 10000)) in KB else None
 
 def final_outputs():
     out = [f'tables/{s}_{kb}_score.gtab.gz' for s in SERIES for kb in KB.values()]
     for s in DEEP_SERIES:
-        first = SERIES[s].iloc[0]['name']
-        out += [f'tables/{s}_score/{s}_{c}_score.gtab.gz' for c in chroms_of(first)]
-    if FIT_KB:
-        out += [f'tables/{s}_{FIT_KB}_4PL.gtab.gz' for s in FIT_SERIES]
+        out += [f'tables/{s}_score/{s}_{c}_score.gtab.gz' for c in chroms_of(points(s)[0])]
+    out += [f'tables/{s}_{FIT_KB}_4PL.gtab.gz' for s in FIT_SERIES]
+    if QC != 'off':
+        out.append('qc/report.html')
     return out
+
 
 rule all:
     input: final_outputs()
 
+
+def mb(path_list, factor, base):
+    """Memory request (MB) from input size: base + factor * input MB."""
+    return int(base + factor * sum(Path(p).stat().st_size for p in path_list if Path(p).exists()) / 1e6)
+
 # ---------------------------------------------------------------- alignment
 rule align:
-    # bowtie-submit (GEO run: trim_to = 50), then sorted and indexed (the order does not affect counts)
+    # bowtie2 end-to-end, paired, reads trimmed to `trim_to` bases; then sorted and indexed
     input:
         r1=lambda w: [P(f) for f in SAMPLES.loc[w.name, 'fastq1'].split(',')],
         r2=lambda w: [P(f) for f in SAMPLES.loc[w.name, 'fastq2'].split(',')],
@@ -90,30 +149,28 @@ rule align:
         bam='bam/{name}.bam',
         bai='bam/{name}.bam.bai',
     params:
-        index=lambda w: P(genome_of(w.name)['bowtie2_index']),
-        trim=config.get('trim_to', 50),
+        index=lambda w: GENOMES[cell_of(w.name)['genome']]['bowtie2_index'],
         r1=lambda w, input: ','.join(input.r1),
         r2=lambda w, input: ','.join(input.r2),
-    threads: config.get('align_threads', 8)
-    # H1 PEG 2rep (6-8 M pairs, hg38): 8 threads at ~90%, 5.7 GB, 8-12 min (seff 2026-10-12)
-    resources: mem_mb=9000, runtime=24 * 60
+    threads: THREADS
+    # ~0.8 M pairs per minute with 8 threads; 6 GB
+    resources: mem_mb=lambda w, attempt: 9000 * attempt, runtime=48 * 60
     log: 'logs/align/{name}.log'
     shell:
-        'bowtie2 -p {threads} --trim-to {params.trim} -x {params.index} '
-        '-1 {params.r1} -2 {params.r2} 2> {log} '
-        '| samtools sort -@ 2 -m 1G -o {output.bam} - && samtools index {output.bam}'
+        f'bowtie2 -p {{threads}} --trim-to {TRIM} -x {{params.index}} -1 {{params.r1}} -2 {{params.r2}} 2> {{log}} '
+        '| samtools sort -@ 2 -m 1G -T bam/{wildcards.name}.tmp -o {output.bam} - && samtools index {output.bam}'
 
-# ---------------------------------------------------------------- binned scores (1 kb, 10 kb)
+# ---------------------------------------------------------------- binned scores
 rule bincount:
     input: bam='bam/{name}.bam', bai='bam/{name}.bam.bai'
     output: 'bin/{name}_{kb}_bin.gtab.gz'
     params:
-        fasta=lambda w: P(genome_of(w.name)['fasta']),
+        fasta=lambda w: fasta_of(w.name),
         chroms=lambda w: ' '.join(chroms_of(w.name)),
         win=lambda w: {v: k for k, v in KB.items()}[w.kb],
-    # 1.3-1.4 GB on 6-8 M pairs (seff 2026-10-12); 2.7 GB, 2-9 min on 8-9 M pairs, and 2500 MB was
-    # OOM-killed (sacct 2026-10-13). Doubles on a retry after OOM.
-    resources: mem_mb=lambda w, attempt: 4000 * attempt, runtime=240
+    resources:
+        mem_mb=lambda w, input, attempt: mb([input.bam], 0.6, 3000) * attempt,
+        runtime=lambda w, input: mb([input.bam], 0.02, 60),
     shell:
         f'{CONDSEQ} bincount --bam {{input.bam}} --fasta {{params.fasta}} --chroms {{params.chroms}} '
         f'--win {{params.win}} {READ_OPTS} -o {{output}}'
@@ -127,66 +184,61 @@ rule score_bin:
     params:
         tnum=lambda w: SAMPLES.loc[w.name, 'tnum'],
         chroms=lambda w: ' '.join(chroms_of(w.name)),
-    # 1 kb: 4.4 GB; 10 kb: < 0.1 GB (seff 2026-10-12)
+    # 1 kb, hg38: 4.4 GB
     resources: mem_mb=lambda w, attempt: (7000 if w.kb == '1kb' else 2000) * attempt, runtime=120
     shell:
         f'{CONDSEQ} score --test {{input.test}} --control {{input.control}} --titration {{input.tit}} '
         f'--tnum {{params.tnum}} --chroms {{params.chroms}} {NAN_OPT} -o {{output}}'
 
 rule table_bin:
-    # concat-submit: one column per titration point (input excluded), as the GEO tables
-    input:
-        lambda w: [f'score/{n}_{w.kb}_score.gtab.gz' for n in SERIES[w.series].query('tnum > 0')['name']]
+    # one column per titration point (input excluded)
+    input: lambda w: [f'score/{n}_{w.kb}_score.gtab.gz' for n in points(w.series)]
     output: 'tables/{series}_{kb}_score.gtab.gz'
-    # Streams the inputs: 1 kb, nine columns: 93 MB, 2 min (2026-10-14; was 16.6 GB in memory)
     resources: mem_mb=lambda w, attempt: 2000 * attempt, runtime=60
     shell: f'{CONDSEQ} concat --inputs {{input}} -o {{output}}'
 
-# ---------------------------------------------------------------- per-nucleosome scores (deep)
+# ---------------------------------------------------------------- per-nucleosome scores (deep series)
 rule peaks:
-    # NCPpeak-submit: dyads called on the input sample only
+    # nucleosome dyads, called on the input sample only
     input: bam='bam/{name}.bam', bai='bam/{name}.bam.bai'
     output: 'peaks/{name}_{chrom}_peak.gtab.gz'
-    params: opts=READ_OPTS
-    resources: mem_mb=24000, runtime=360
-    shell: f'{CONDSEQ} peaks --bam {{input.bam}} --chrom {{wildcards.chrom}} {{params.opts}} -o {{output}}'
+    resources: mem_mb=lambda w, attempt: 24000 * attempt, runtime=12 * 60
+    shell: f'{CONDSEQ} peaks --bam {{input.bam}} --chrom {{wildcards.chrom}} {READ_OPTS} -o {{output}}'
 
 rule areas:
-    # coverage-submit + NCPcov-submit (+ Bindata-submit); coverage stays in memory
+    # read coverage in a 171 bp window at each dyad, and in 171 bp windows every 25 bp
     input:
         bam='bam/{name}.bam', bai='bam/{name}.bam.bai',
         peaks=lambda w: f'peaks/{input_of(w.name)}_{w.chrom}_peak.gtab.gz',
     output:
         ncov='areas/{name}_{chrom}_Ncov.gtab.gz',
         bdata='areas/{name}_{chrom}_171win25step_Bdata.gtab.gz',
-    params: fasta=lambda w: P(genome_of(w.name)['fasta'])
-    resources: mem_mb=16000, runtime=240
+    params: fasta=lambda w: fasta_of(w.name)
+    resources: mem_mb=lambda w, attempt: 16000 * attempt, runtime=8 * 60
     shell:
         f'{CONDSEQ} areas --bam {{input.bam}} --fasta {{params.fasta}} --chrom {{wildcards.chrom}} '
         f'--peaks {{input.peaks}} {READ_OPTS} --ncov-out {{output.ncov}} --bdata-out {{output.bdata}}'
 
 rule score_ncov:
-    # NCPscore on the per-chromosome Ncov files; normalization runs over all chromosomes
+    # normalized over all chromosomes together
     input:
         test=lambda w: [f'areas/{w.name}_{c}_Ncov.gtab.gz' for c in chroms_of(w.name)],
         control=lambda w: [f'areas/{input_of(w.name)}_{c}_Ncov.gtab.gz' for c in chroms_of(w.name)],
         tit=lambda w: titration_of(SAMPLES.loc[w.name, 'series']),
-    output: 'score/{name}.ncp_scores.done'
+    output: touch('score/{name}.ncp_scores.done')
     params:
         tnum=lambda w: SAMPLES.loc[w.name, 'tnum'],
         outs=lambda w: ' '.join(f'score/{w.name}_{c}_score.gtab.gz' for c in chroms_of(w.name)),
-    resources: mem_mb=16000, runtime=120
+    resources: mem_mb=lambda w, attempt: 16000 * attempt, runtime=4 * 60
     shell:
         f'{CONDSEQ} score --test {{input.test}} --control {{input.control}} --titration {{input.tit}} '
-        f'--tnum {{params.tnum}} {NAN_OPT} -o {{params.outs}} && touch {{output}}'
+        f'--tnum {{params.tnum}} {NAN_OPT} -o {{params.outs}}'
 
 rule table_ncov:
-    # one file per chromosome, columns = titration points: the content of GEO's *_deep_score.tar.gz
-    input: lambda w: [f'score/{n}.ncp_scores.done' for n in SERIES[w.series].query('tnum > 0')['name']]
+    # one file per chromosome, one column per titration point
+    input: lambda w: [f'score/{n}.ncp_scores.done' for n in points(w.series)]
     output: 'tables/{series}_score/{series}_{chrom}_score.gtab.gz'
-    params:
-        files=lambda w: ' '.join(f'score/{n}_{w.chrom}_score.gtab.gz'
-                                 for n in SERIES[w.series].query('tnum > 0')['name'])
+    params: files=lambda w: ' '.join(f'score/{n}_{w.chrom}_score.gtab.gz' for n in points(w.series))
     resources: mem_mb=lambda w, attempt: 2000 * attempt, runtime=60
     shell: f'{CONDSEQ} concat --inputs {{params.files}} -o {{output}}'
 
@@ -198,9 +250,8 @@ rule num_bin:
     output: 'num/{name}_{kb}_num.gtab.gz'
     params:
         tnum=lambda w: SAMPLES.loc[w.name, 'tnum'],
-        mscale=lambda w: config.get('mscale', {}).get(SAMPLES.loc[w.name, 'agent'], 1),
+        mscale=lambda w: MSCALE.get(SAMPLES.loc[w.name, 'agent'], 1),
         chroms=lambda w: ' '.join(chroms_of(w.name)),
-    # 10 kb: < 0.1 GB, < 1 min (sacct 2026-10-13)
     resources: mem_mb=lambda w, attempt: 2000 * attempt, runtime=60
     shell:
         f'{CONDSEQ} num --inputs {{input.bins}} --titration {{input.tit}} --tnum {{params.tnum}} '
@@ -209,22 +260,73 @@ rule num_bin:
 rule table_num:
     input: lambda w: [f'num/{n}_{w.kb}_num.gtab.gz' for n in SERIES[w.series]['name']]
     output: 'tables/{series}_{kb}_num.gtab.gz'
-    # 10 kb, ten columns: < 0.1 GB, 1 min (sacct 2026-10-13)
     resources: mem_mb=lambda w, attempt: 2000 * attempt, runtime=60
     shell: f'{CONDSEQ} concat --inputs {{input}} -o {{output}}'
 
 rule fit:
-    # logistic-submit: sigmoid, differential evolution, top=1, bottom=0, R^2 >= 0.5
+    # c-half: logistic fit of each bin's surviving nucleosome number across the titration
     input:
         num='tables/{series}_{kb}_num.gtab.gz',
         tit=lambda w: titration_of(w.series),
     output: 'tables/{series}_{kb}_4PL.gtab.gz'
-    params:
-        tnums=lambda w: ' '.join(SERIES[w.series]['tnum'].astype(str)),
-        model=FIT.get('model', 'sigmoid'), method=FIT.get('method', 'evolution'),
-        rsq=FIT.get('min_rsq', 0.5),
-    # 10 kb, ten points: 0.5 GB, 139 min, 1 core at 99% (sacct 2026-10-13)
-    resources: mem_mb=lambda w, attempt: 1500 * attempt, runtime=720
+    params: tnums=lambda w: ' '.join(SERIES[w.series]['tnum'].astype(str))
+    # 10 kb hg38, ten points: 0.5 GB, ~2.5 h on one core
+    resources: mem_mb=lambda w, attempt: 1500 * attempt, runtime=12 * 60
     shell:
         f'{CONDSEQ} fit --input {{input.num}} --titration {{input.tit}} --tnums {{params.tnums}} '
-        f'--model {{params.model}} --method {{params.method}} --min-rsq {{params.rsq}} -o {{output}}'
+        f"--model {FIT['model']} --method {FIT['method']} --min-rsq {FIT['min_rsq']} -o {{output}}"
+
+# ---------------------------------------------------------------- quality control
+VERBOSE = '--verbose' if QC == 'verbose' else ''
+
+rule qc_sample:
+    # alignment summary, read filters, fragment lengths
+    input: bam='bam/{name}.bam', log='logs/align/{name}.log'
+    output: 'qc/samples/{name}.json'
+    threads: 4
+    resources: mem_mb=lambda w, attempt: (8000 if VERBOSE else 2000) * attempt, runtime=4 * 60
+    shell:
+        f"{CONDSEQ} qc-sample --bam {{input.bam}} --bowtie2-log {{input.log}} --mm {READS['mm']} "
+        f"--min-mapq {READS['min_mapq']} --threads {{threads}} {VERBOSE} -o {{output}}"
+
+rule qc_series:
+    input:
+        samples=lambda w: [f'qc/samples/{n}.json' for n in SERIES[w.series]['name']],
+        bins=lambda w: [f'bin/{n}_{QC_KB}_bin.gtab.gz' for n in SERIES[w.series]['name']],
+        table=lambda w: f'tables/{w.series}_{QC_KB}_score.gtab.gz',
+        tit=lambda w: titration_of(w.series),
+        fit=lambda w: [f'tables/{w.series}_{FIT_KB}_4PL.gtab.gz'] if w.series in FIT_SERIES else [],
+        peaks=lambda w: ([f'peaks/{SERIES[w.series].iloc[0]["name"]}_{c}_peak.gtab.gz'
+                          for c in chroms_of(SERIES[w.series].iloc[0]['name'])]
+                         if w.series in DEEP_SERIES else []),
+    output: json='qc/series/{series}.json', png='qc/series/{series}.png'
+    params:
+        fit=lambda w, input: f'--fit {input.fit[0]}' if input.fit else '',
+        peaks=lambda w, input: f'--peaks {" ".join(input.peaks)}' if input.peaks else '',
+        fasta=lambda w: fasta_of(SERIES[w.series].iloc[0]['name']),
+    resources: mem_mb=lambda w, attempt: 4000 * attempt, runtime=60
+    shell:
+        f'{CONDSEQ} qc-series --series {{wildcards.series}} --samples {{input.samples}} --bins {{input.bins}} '
+        f'--table {{input.table}} --titration {{input.tit}} {{params.fit}} {{params.peaks}} '
+        f'--fasta {{params.fasta}} {VERBOSE} -o {{output.json}} --png {{output.png}}'
+
+rule qc_replicates:
+    input: lambda w: [f'tables/{s}_{kb}_score.gtab.gz' for kb in KB.values() for s in REP_GROUPS[w.group]]
+    output: json='qc/replicates/{group}.json', png='qc/replicates/{group}.png'
+    params:
+        args=lambda w: ' '.join(f'--tables {kb} ' + ' '.join(f'tables/{s}_{kb}_score.gtab.gz' for s in REP_GROUPS[w.group])
+                                for kb in KB.values())
+    resources: mem_mb=lambda w, attempt: 8000 * attempt, runtime=60
+    shell: f'{CONDSEQ} qc-replicates --group {{wildcards.group}} {{params.args}} -o {{output.json}} --png {{output.png}}'
+
+rule qc_report:
+    input:
+        samples=[f'qc/samples/{n}.json' for n in SAMPLES.index],
+        series=[f'qc/series/{s}.json' for s in SERIES],
+        reps=[f'qc/replicates/{g}.json' for g in REP_GROUPS],
+    output: html='qc/report.html', summary='qc/summary.tsv', flags='qc/flags.tsv'
+    params: thresholds=lambda w: ' '.join(f'{k}={v}' for k, v in cfg('qc_thresholds', {}).items())
+    resources: mem_mb=1000, runtime=10
+    shell:
+        f'{CONDSEQ} qc-report --samples {{input.samples}} --series {{input.series}} '
+        f'--replicates {{input.reps}} --thresholds {{params.thresholds}} --outdir qc'

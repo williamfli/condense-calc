@@ -1,6 +1,6 @@
 """Do the pipeline's tables recover the simulated truth? (tests/simulate.py)
 
-    python tests/check_truth.py OUT       (OUT = .../condense-seq-pipeline/synthetic)
+    python tests/synthetic/check_truth.py OUT       (OUT = the folder given to tests/synthetic/run.sh)
 
 Truth per nucleosome i at concentration c: score = -ln p_i(c), p_i = 1/(1+exp(rate (c - chalf_i))).
 Binned truth: -ln of the bin's mean p (scores measure the bin's surviving fraction).

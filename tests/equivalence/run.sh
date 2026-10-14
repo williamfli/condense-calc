@@ -1,27 +1,19 @@
 #!/bin/bash
-#SBATCH -J condseq_equiv
-#SBATCH -c 1
-#SBATCH -t 0-04:00
-#SBATCH -p test
-#SBATCH --mem=4G
-# 1 core, < 1 GB, 1.5 min (seff 2026-10-07)
-#SBATCH -o ../lab/logs/condseq_pipeline/%x_%j.out
-#SBATCH -e ../lab/logs/condseq_pipeline/%x_%j.err
-# Run Park's original Python 2 scripts (external/condense-seq/prepro_scripts) on the synthetic
-# BAMs made by tests/run_synthetic.sbatch, with the GEO run's arguments, then compare with ours.
-# Submit from condense-seq-pipeline/ after the synthetic run has finished.
+# Run Park's original Python 2 scripts on the BAMs of the synthetic test, with the arguments of the
+# GEO run, and compare every intermediate and final table with ours. Run from the repo root, in the
+# condseq env, after tests/synthetic/run.sh OUTDIR:
+#   bash tests/equivalence/run.sh OUTDIR PARK_REPO [PYTHON2]
+# PARK_REPO is a checkout of https://github.com/spark159/condense-seq (commit a8d2dd8);
+# PYTHON2 defaults to `python2` on the PATH. Prints a table that must show every row identical.
 set -euo pipefail
-module load python/3.12.11-fasrc02
-mamba activate condseq                       # samtools, and python3 for the comparison
-module load python/2.7.16-fasrc01            # python2 for the original scripts
-ORIG=$(realpath ../external/condense-seq/prepro_scripts)
+OUT=$(realpath "$1")
+ORIG=$(realpath "$2")/prepro_scripts
+PY2=${3:-$(command -v python2)}
+PY3=${PY3:-$(command -v python3)}   # set PY3 if python3 on the PATH is not the condseq env
 PIPE=$(pwd)
-OUT=$(realpath ../lab/outputs)/condense-seq-pipeline/synthetic
 REF=$OUT/input/ref/sim.fa
 CHR="chr1 chr2 chrX"
 W=$OUT/equiv/original; mkdir -p $W; cd $W
-PY2=$(command -v python2)
-PY3=/n/holylabs/zhuang_lab/Lab/wfli/conda/envs/condseq/bin/python
 
 # Park-format titration file (10 tab-separated columns: conc .. survival fraction (8th) .. tnum)
 awk 'NR==1{print "conc\tc1\tc2\tc3\tc4\tc5\tc6\tfrac\tc8\ttnum"; next}
