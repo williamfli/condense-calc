@@ -69,3 +69,24 @@ def test_py2_formatting():
     assert gtab.py2_str(3) == '3' and gtab.py2_str(3.0) == '3.0' and gtab.py2_str(2.04069) == '2.04069'
     assert gtab.py2_round(0.125, 2) == 0.13          # Python 3 round() gives 0.12
     assert gtab.sort_chroms(['chrX', 'chr10', 'chr2', 'chrM', 'chr1']) == ['chr1', 'chr2', 'chr10', 'chrM', 'chrX']
+
+
+def test_concatenate_stream_matches_memory(tmp_path):
+    # sorted inputs take the streaming merge; it must give the in-memory outer join row for row
+    hdr = ['Chromosome', 'Start', 'End']
+    a = [['chr1', '0', '10', '1'], ['chr2', '0', '10', '2'], ['chr10', '0', '10', '3'], ['chrX', '0', '10', '4']]
+    b = [['chr2', '0', '10', '5', '6', '0.4'], ['chr10', '0', '10', '7', '8', '0.5'], ['chrM', '0', '10', '9', '9', '0.6']]
+    gtab.write(tmp_path / 'a.gtab.gz', hdr + ['a'], a)
+    gtab.write(tmp_path / 'b.gtab.gz', hdr + ['b1', 'b2', 'GCcontent'], b)
+    paths = [tmp_path / 'a.gtab.gz', tmp_path / 'b.gtab.gz']
+    assert all(score._sorted_unique(p) for p in paths)
+    h1, r1 = score._concatenate_stream(paths)
+    h2, r2 = score._concatenate_memory(paths)
+    r1, r2 = list(r1), list(r2)
+    assert h1 == h2 == hdr + ['a', 'b1', 'b2'] and r1 == r2
+    assert r1[1] == ['chr2', '0', '10', '2', '5', '6'] and r1[3] == ['chrM', '0', '10', 'NA', '9', '9']
+    # an unsorted input is detected, so concatenate falls back to the in-memory join
+    gtab.write(tmp_path / 'c.gtab.gz', hdr + ['c'], [a[2], a[0]])
+    assert not score._sorted_unique(tmp_path / 'c.gtab.gz')
+    h, r = score.concatenate([tmp_path / 'c.gtab.gz', paths[0]])
+    assert [x[0] for x in r] == ['chr1', 'chr2', 'chr10', 'chrX']

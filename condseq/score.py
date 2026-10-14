@@ -112,7 +112,69 @@ def numbers(paths, survival_fraction, mscale=1, chroms=None):
 
 def concatenate(paths, colnums=None):
     """Outer join of gtabs on their keys (concat_gtab.py). colnums: per file, the column
-    indices to take (default: all data columns). Missing rows give 'NA'."""
+    indices to take (default: all data columns). Missing rows give 'NA'.
+
+    Returns (header, rows), rows an iterator. When every input is sorted by key with no
+    repeats (as all of the pipeline's own tables are), the files are merged line by line in
+    constant memory. Otherwise it falls back to the in-memory join, which gives the same output."""
+    if all(_sorted_unique(p) for p in paths):
+        return _concatenate_stream(paths, colnums)
+    return _concatenate_memory(paths, colnums)
+
+
+def _gtab_lines(path):
+    """Header, then the split data lines of a gtab, read as gtab.read does."""
+    with gtab.open_text(path) as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                yield line.split()
+
+
+def _sorted_unique(path):
+    lines = _gtab_lines(path)
+    nk = gtab.Table(next(lines), []).nkey
+    prev = None
+    for r in lines:
+        key = gtab.point_key(r[0], *[int(v) for v in r[1:nk]])
+        if prev is not None and key <= prev:
+            return False
+        prev = key
+    return True
+
+
+def _concatenate_stream(paths, colnums=None):
+    readers = [_gtab_lines(p) for p in paths]
+    tables = [gtab.Table(next(rd), []) for rd in readers]
+    nk = tables[0].nkey
+    if colnums is None:
+        colnums = [t.data_columns() for t in tables]
+    header = tables[0].header[:nk] + [t.header[i] for t, cols in zip(tables, colnums) for i in cols]
+
+    def head(rd, t):
+        r = next(rd, None)
+        return None if r is None else (gtab.point_key(r[0], *[int(v) for v in r[1:t.nkey]]), r)
+
+    def rows():
+        heads = [head(rd, t) for rd, t in zip(readers, tables)]
+        while any(h is not None for h in heads):
+            key = min(h[0] for h in heads if h is not None)
+            row = None
+            vals = []
+            for j, (h, cols) in enumerate(zip(heads, colnums)):
+                if h is None or h[0] != key:
+                    vals += ['NA'] * len(cols)
+                else:
+                    r = h[1]
+                    row = row or r[:nk]
+                    vals += [r[i] for i in cols]
+                    heads[j] = head(readers[j], tables[j])
+            yield row + vals
+
+    return header, rows()
+
+
+def _concatenate_memory(paths, colnums=None):
     tables = [gtab.read(p) for p in paths]
     nk = tables[0].nkey
     if colnums is None:

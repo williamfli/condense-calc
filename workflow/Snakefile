@@ -138,11 +138,8 @@ rule table_bin:
     input:
         lambda w: [f'score/{n}_{w.kb}_score.gtab.gz' for n in SERIES[w.series].query('tnum > 0')['name']]
     output: 'tables/{series}_{kb}_score.gtab.gz'
-    # Holds every input table in memory as Python strings, ~1.8 GB per 1 kb column. 1 kb: one column
-    # 1.4 GB (seff 2026-10-12), nine columns 16.6 GB, 3 min (sacct 2026-10-13); 10 kb: < 0.1 GB.
-    resources:
-        mem_mb=lambda w, input, attempt: ((2800 * len(input) + 1000) if w.kb == '1kb' else 2000) * attempt,
-        runtime=60
+    # Streams the inputs: 1 kb, nine columns: 93 MB, 2 min (2026-10-14; was 16.6 GB in memory)
+    resources: mem_mb=lambda w, attempt: 2000 * attempt, runtime=60
     shell: f'{CONDSEQ} concat --inputs {{input}} -o {{output}}'
 
 # ---------------------------------------------------------------- per-nucleosome scores (deep)
@@ -190,7 +187,7 @@ rule table_ncov:
     params:
         files=lambda w: ' '.join(f'score/{n}_{w.chrom}_score.gtab.gz'
                                  for n in SERIES[w.series].query('tnum > 0')['name'])
-    resources: mem_mb=8000, runtime=60
+    resources: mem_mb=lambda w, attempt: 2000 * attempt, runtime=60
     shell: f'{CONDSEQ} concat --inputs {{params.files}} -o {{output}}'
 
 # ---------------------------------------------------------------- nucleosome numbers and c-half
