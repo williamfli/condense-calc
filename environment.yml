@@ -1,5 +1,5 @@
-# mamba env create -f environment.yml && mamba activate condseq && pip install -e .
-name: condseq
+# mamba env create -f environment.yml && mamba activate cloudpoint && pip install -e .
+name: cloudpoint
 channels:
   - conda-forge
   - bioconda

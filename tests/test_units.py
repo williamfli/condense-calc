@@ -1,10 +1,10 @@
-"""Small hand-checkable tests of each stage. Run: pytest tests/test_units.py (in the condseq env)."""
+"""Small hand-checkable tests of each stage. Run: pytest tests/test_units.py (in the cloudpoint env)."""
 import math
 
 import numpy as np
 
-from condseq import counts, gtab, score
-from condseq.fragments import Fragments
+from cloudpoint import counts, gtab, score
+from cloudpoint.fragments import Fragments
 
 
 def F(rows):

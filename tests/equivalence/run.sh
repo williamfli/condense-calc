@@ -1,7 +1,7 @@
 #!/bin/bash
 # Run Park's original Python 2 scripts on the BAMs of the synthetic test, with the arguments of the
 # GEO run, and compare every intermediate and final table with ours. Run from the repo root, in the
-# condseq env, after tests/synthetic/run.sh OUTDIR:
+# cloudpoint env, after tests/synthetic/run.sh OUTDIR:
 #   bash tests/equivalence/run.sh OUTDIR PARK_REPO [PYTHON2]
 # PARK_REPO is a checkout of https://github.com/spark159/condense-seq (commit a8d2dd8);
 # PYTHON2 defaults to `python2` on the PATH. Prints a table that must show every row identical.
@@ -9,7 +9,7 @@ set -euo pipefail
 OUT=$(realpath "$1")
 ORIG=$(realpath "$2")/prepro_scripts
 PY2=${3:-$(command -v python2)}
-PY3=${PY3:-$(command -v python3)}   # set PY3 if python3 on the PATH is not the condseq env
+PY3=${PY3:-$(command -v python3)}   # set PY3 if python3 on the PATH is not the cloudpoint env
 PIPE=$(pwd)
 REF=$OUT/input/ref/sim.fa
 CHR="chr1 chr2 chrX"
@@ -65,7 +65,7 @@ ls | wc -l
 mkdir -p $OUT/equiv/ours && cd $PIPE
 for b in $(ls $OUT/run/bam/*_deep.bam); do n=$(basename $b .bam)
   for c in $CHR; do
-    PYTHONPATH=$PIPE $PY3 -m condseq coverage --bam $b --fasta $REF --chrom $c -o $OUT/equiv/ours/${n}_${c}_cov.gtab.gz
+    PYTHONPATH=$PIPE $PY3 -m cloudpoint coverage --bam $b --fasta $REF --chrom $c -o $OUT/equiv/ours/${n}_${c}_cov.gtab.gz
   done
 done
 PYTHONPATH=$PIPE $PY3 tests/equivalence/compare.py $OUT

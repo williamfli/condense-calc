@@ -1,6 +1,6 @@
 # Processing details
 
-condseq is a Python 3 port of the preprocessing scripts of Park et al. 2025
+cloudpoint is a Python 3 port of the preprocessing scripts of Park et al. 2025
 ([spark159/condense-seq](https://github.com/spark159/condense-seq) `prepro_scripts`, commit `a8d2dd8`),
 with the settings of the script that made the GEO tables (`submit_scripts/batch_submit_ver7.py`).
 
@@ -29,13 +29,13 @@ Reproduced as in the original:
 - **Fragment centre:** even lengths go to the left centre base in `bincount`; the peak caller splits
   them 0.5/0.5.
 - **Peak caller:** greedy and unsmoothed. Equal dyad counts are ordered as Python 2 sorted them.
-  `condseq peaks --fast` uses a plain tie rule instead.
+  `cloudpoint peaks --fast` uses a plain tie rule instead.
 - **Numbers in text output:** rounded and printed as Python 2 did, so files compare byte for byte.
 - **Not available:** `bowtie-submit_ver2`, which the GEO driver calls, is missing from the authors'
   repository; the align step uses `bowtie-submit` with the driver's `trim_to = 50`.
 
 Sliding-window areas (`areas/*_Bdata*`) are computed but not scored; GEO has no table of them.
-`condseq score` can score them.
+`cloudpoint score` can score them.
 
 ## Validation
 

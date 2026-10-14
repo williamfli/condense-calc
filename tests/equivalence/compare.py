@@ -1,6 +1,6 @@
 """Compare our outputs with the original scripts' outputs on the synthetic data, stage by stage.
 
-    python tests/equivalence/compare.py OUT      (OUT = .../condense-seq-pipeline/synthetic)
+    python tests/equivalence/compare.py OUT      (OUT = the folder given to tests/synthetic/run.sh)
 
 For every file pair: same header? same rows (keys) in the same order? how many value cells are
 identical as text, and the largest numeric difference. Writes OUT/equiv/comparison.tsv.
@@ -9,7 +9,7 @@ import math
 import sys
 from pathlib import Path
 
-from condseq import gtab
+from cloudpoint import gtab
 
 OUT = Path(sys.argv[1])
 O, R, E = OUT / 'equiv/original', OUT / 'run', OUT / 'equiv/ours'

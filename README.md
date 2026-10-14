@@ -1,26 +1,30 @@
-# condseq
+# cloudpoint
 
 Turns condense-seq reads (paired-end FASTQ) into condensability tables and a QC report.
 It reimplements the processing behind the Park et al. 2025 GEO tables (GSE252941); on test data its
 output is identical to the authors' scripts. The output uses the same table format.
 
+The name: a solution's cloud point is where it turns turbid as something comes out of it. The
+assay measures how readily each region's nucleosomes leave solution as spermine (or another agent)
+is added.
+
 ## Install
 
 ```bash
-git clone git@github.com:williamfli/condense-seq-pipeline.git
-cd condense-seq-pipeline
+git clone git@github.com:williamfli/cloudpoint.git
+cd cloudpoint
 mamba env create -f environment.yml      # bowtie2, samtools, snakemake, python packages
-mamba activate condseq
+mamba activate cloudpoint
 pip install -e .
 ```
 
 ## Run
 
 ```bash
-condseq reference hg38 ~/refs            # once: hg38 FASTA + bowtie2 index (~7 GB)
-condseq init myexp                       # writes myexp/config.yaml, samples.tsv, titration/
+cloudpoint reference hg38 ~/refs            # once: hg38 FASTA + bowtie2 index (~7 GB)
+cloudpoint init myexp                       # writes myexp/config.yaml, samples.tsv, titration/
 # edit the three files (below), then:
-condseq run myexp/config.yaml --cores 8  # results in myexp/results/
+cloudpoint run myexp/config.yaml --cores 8  # results in myexp/results/
 ```
 
 On a Slurm cluster, each step can run as its own job. The controller is light but runs for the
@@ -28,10 +32,10 @@ whole workflow, so start it as a small job too:
 
 ```bash
 sbatch -c 1 --mem 4G -t 3-00:00 --wrap \
-  "condseq run myexp/config.yaml --slurm --account mylab --partition shared"
+  "cloudpoint run myexp/config.yaml --slurm --account mylab --partition shared"
 ```
 
-`condseq run ... -n` shows what would run. Re-running the same command resumes after an
+`cloud` is a short alias for `cloudpoint`. `cloudpoint run ... -n` shows what would run. Re-running the same command resumes after an
 interruption.
 
 ## Inputs
@@ -116,8 +120,8 @@ The defaults reproduce the GEO tables. These keys can be added to the config:
 
 ```bash
 pytest tests/test_units.py
-bash tests/synthetic/run.sh /tmp/condseq-test      # simulated experiment, ~1 min
-python tests/synthetic/check_truth.py /tmp/condseq-test
+bash tests/synthetic/run.sh /tmp/cloudpoint-test      # simulated experiment, ~1 min
+python tests/synthetic/check_truth.py /tmp/cloudpoint-test
 ```
 
 `tests/equivalence/run.sh` runs the authors' original Python 2 scripts on the same simulated reads
