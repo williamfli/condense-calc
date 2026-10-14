@@ -16,11 +16,12 @@
 # downloaded again, up to 5 times, until its md5 matches. Submit from condense-seq-pipeline/geo_test/.
 #   sbatch download.sbatch 0        # step 0 only (1.28 GB)
 #   sbatch download.sbatch 0 1      # steps 0 and 1 (10.1 GB)
+#   sbatch -t 1-00:00 --export=ALL,PARALLEL=8 download.sbatch 2   # step 2, deep (62.8 GB)
 # netscratch purges files after 90 days; they can be fetched again with this script. Files get
 # the download date (--no-use-server-timestamps), else ENA's old dates trigger the purge at once.
 set -uo pipefail
 RAW=/n/netscratch/zhuang_lab/Lab/wfli/condense-seq/raw/GSE252941
-PARALLEL=4
+PARALLEL=${PARALLEL:-4}   # files fetched at once
 mkdir -p $RAW
 STEPS=" ${@:-0 1} "
 
