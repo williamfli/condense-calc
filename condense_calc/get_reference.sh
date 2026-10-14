@@ -1,9 +1,9 @@
 #!/bin/bash
 # Download a genome FASTA (+ .fai) and its bowtie2 index into OUTDIR/<genome>/.
-#   get_reference.sh OUTDIR THREADS hg38 [mm10]      (usually via: condense-calc reference hg38 OUTDIR)
+#   get_reference.sh OUTDIR THREADS hg38 [mm10]      (usually via: condense reference hg38 --refs OUTDIR)
 # hg38: NCBI GRCh38 no-alt analysis set with its prebuilt bowtie2 index (~7 GB, ~30 min).
 # mm10: UCSC mm10 chr1-19, X, Y, M; the index is built here (a few hours; use more threads).
-# Park et al. used the 4DN versions of these references; multi-mapping reads can land differently.
+# For hg38, the 4DN index named in Park et al.'s scripts gives identical counts in every 10 kb bin.
 set -euo pipefail
 OUT=$(realpath "$1"); THREADS=$2; shift 2
 NCBI=https://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/001/405/GCA_000001405.15_GRCh38/seqs_for_alignment_pipelines.ucsc_ids

@@ -1,125 +1,83 @@
 # condense-calc
 
-Turns condense-seq reads (paired-end FASTQ) into condensability tables and a QC report.
-It reimplements the processing behind the Park et al. 2025 GEO tables (GSE252941); on test data its
-output is identical to the authors' scripts. The output uses the same table format.
+Turns condense-seq reads (paired-end FASTQ) into condensability scores and a QC report.
+The processing is that of Park et al. 2025 (GEO GSE252941); on test data the output is identical
+to the authors' scripts.
 
 ## Install
 
 ```bash
 git clone git@github.com:williamfli/condense-calc.git
-cd condense-calc
-mamba env create -f environment.yml      # bowtie2, samtools, snakemake, python packages
-mamba activate condense-calc
-pip install -e .
+mamba env create -f condense-calc/environment.yml     # or conda; installs everything, ~10 min
 ```
 
 ## Run
 
 ```bash
-condense-calc reference hg38 ~/refs            # once: hg38 FASTA + bowtie2 index (~7 GB)
-condense-calc init myexp                       # writes myexp/config.yaml, samples.tsv, titration/
-# edit the three files (below), then:
-condense-calc run myexp/config.yaml --cores 8  # results in myexp/results/
+mamba activate condense-calc
+condense init path/to/fastqs        # writes samples.tsv, one row per FASTQ
+# fill in the conc and fraction columns, then:
+condense samples.tsv                # results in results/ next to samples.tsv
 ```
 
-On a Slurm cluster, each step can run as its own job. The controller is light but runs for the
-whole workflow, so start it as a small job too:
+On a Slurm cluster, add `--slurm` (and `--account`, `--partition` if needed). `condense` then
+submits itself as a small job, which runs each step as its own job, and returns.
 
-```bash
-sbatch -c 1 --mem 4G -t 3-00:00 --wrap \
-  "condense-calc run myexp/config.yaml --slurm --account mylab --partition shared"
+The first run downloads the genome (hg38 by default, ~7 GB, ~30 min) into `~/.cache/condense-calc`.
+To keep genomes elsewhere or share them, set `CONDENSE_REFS=/path/to/refs`.
+
+Re-running the same command resumes an interrupted run. `-n` shows what would run.
+
+## Sample sheet
+
+```
+series   conc    fraction  fastq
+H1_sp    0       1         reads/input_R1.fastq.gz
+H1_sp    0.794   0.105     reads/sp8_L001_R1.fastq.gz
+H1_sp    0.794   0.105     reads/sp8_L002_R1.fastq.gz
 ```
 
-`condense` is a short alias for `condense-calc`. `condense-calc run ... -n` shows what would run. Re-running the same command resumes after an
-interruption.
-
-## Inputs
-
-**`samples.tsv`**: one row per library, tab-separated.
-
-| column | meaning |
+| column | |
 |---|---|
-| `cell`, `sample`, `agent` | e.g. `H1`, `NCP`, `sp` (spermine); `cell` must be listed under `cells:` in the config |
-| `tnum` | titration point; `0` is the input |
-| `rep` | replicate number |
-| `depth` | `deep` (also gives per-nucleosome scores) or `shallow` |
-| `fastq1`, `fastq2` | read 1 and read 2; several lanes comma-separated |
+| `series` | one titration; each series needs an input row (`conc` 0) |
+| `conc` | agent concentration (any unit; used for the c½ fit) |
+| `fraction` | soluble fraction measured at that concentration (input: 1). It sets the score offset, −ln *fraction* |
+| `fastq` | read-1 file; read 2 is found by name (`_R1` → `_R2`, `_1.fastq` → `_2.fastq`). Wildcards work. Rows with the same series and conc are lanes of one library |
+| `rep` | optional: replicate number; replicates of a series are compared in the QC report |
+| `fastq2`, `agent` | optional: read-2 file if its name doesn't follow read 1; agent name (`Ca` scales nucleosome numbers by 5) |
 
-A *series* is one cell, sample, agent, rep and depth. Each series needs its input (`tnum` 0).
+## Results
 
-**`titration/<cell>_<sample>_<agent>.tsv`**: the measured soluble fraction at each point.
-
-```
-tnum  conc   survival_fraction
-0     0      1.0
-8     0.794  0.105
-```
-
-`survival_fraction` (*f*) is the fraction of nucleosomes left in the supernatant (e.g. by UV-Vis).
-It sets the score offset (−ln *f*), so it must come from the experiment. `conc` is used for the
-c½ fit.
-
-**`config.yaml`**: where the samples, titration tables and genomes are, and which genome each cell
-uses. Relative paths are read relative to the config file.
-
-## Outputs (`results/`)
-
-| file | content |
+| file | |
 |---|---|
-| `tables/<series>_1kb_score.gtab.gz`, `_10kb_` | condensability score per bin, one column per titration point |
-| `tables/<series>_score/<series>_<chr>_score.gtab.gz` | per-nucleosome scores (deep series) |
-| `tables/<series>_10kb_num.gtab.gz`, `_10kb_4PL.gtab.gz` | nucleosome numbers and c½ fit (series with ≥ 5 points) |
-| `qc/report.html` | QC figures and tables; `qc/flags.tsv` lists anything outside the expected range |
-| `bam/` | alignments (can be deleted once the tables are made) |
+| `tables/<series>_1kb_score.gtab.gz`, `_10kb_` | condensability score per bin, one column per concentration |
+| `tables/<series>_10kb_4PL.gtab.gz` | c½ per bin (series with ≥ 5 concentrations) |
+| `tables/<series>_score/` | per-nucleosome scores (with `--nucleosomes`) |
+| `qc/report.html` | QC figures; `qc/flags.tsv` lists values outside the expected range |
+| `bam/` | alignments; can be deleted afterwards |
 
-Score at a titration point with soluble fraction *f*, for supernatant count *s* and input count *c*:
-−ln[(s+1)/Σ(s+1) ÷ (c+1)/Σ(c+1)] − ln *f*. Higher means more condensable.
+Tables are gzipped tab-separated text, in the GEO format. Score for supernatant count *s* and input
+count *c* in a bin: −ln[(s+1)/Σ(s+1) ÷ (c+1)/Σ(c+1)] − ln *fraction*. Higher is more condensable.
 
-## QC
+## Options
 
-Set `qc:` in the config, or `--qc` on the command line:
-
-| level | contents |
+| option | |
 |---|---|
-| `off` | none |
-| `default` | reads, alignment rate, multi-mapping share, fragment lengths, titration, score distributions, score vs input and supernatant counts, c½ fit success, nucleosome count and spacing (deep), replicate agreement |
-| `verbose` | adds duplicate rate, GC dependence, a chromosome-wide score profile, dinucleotide periodicity at nucleosome dyads |
+| `-g, --genome` | `hg38` (default), `mm10`, or a FASTA file (indexed on first use) |
+| `--nucleosomes` | also score every nucleosome; for deeply sequenced series |
+| `--qc off\|default\|verbose` | QC report detail (verbose adds duplicates, GC, dinucleotide periodicity) |
+| `--slurm`, `--account`, `--partition` | run on Slurm |
+| `-o` | output folder |
+| `--settings FILE` | YAML with the settings below |
 
-Several checks follow the paper's Extended Data Fig. 2 (fragment lengths, input vs supernatant,
-dinucleotide periodicity, replicate correlation). Flags are warnings only and never stop a run.
-To change a threshold:
-
-```yaml
-qc_thresholds: {min_replicate_rho: 0.7, max_lowmapq_fraction: 0.2}
-```
-
-The thresholds and their meanings are listed at the end of the report.
-
-## Settings
-
-The defaults reproduce the GEO tables. These keys can be added to the config:
+Settings (defaults reproduce the GEO tables):
 
 | key | default | |
 |---|---|---|
-| `threads` | 8 | bowtie2 threads per sample |
+| `reads: {min_mapq: 0}` | no filter | e.g. 10 drops multi-mapping reads |
+| `reads: {dedup: false}` | duplicates kept | |
 | `bin_sizes` | `[1000, 10000]` | |
-| `reads: {min_mapq: 0}` | no MAPQ filter, as Park | e.g. 10 drops multi-mapping reads, whose placement depends on the genome index |
-| `reads: {dedup: false}` | duplicates kept, as Park | |
-| `reads: {mm: 10}` | max. edit distance | |
-| `score: {missing_as_nan: false}` | bins without input reads are dropped | `true` writes them as NA |
-| `mscale` | `{Ca: 5}`, others 1 | molecule-number scale per agent |
-| `fit` | sigmoid, ≥ 5 points, 10 kb, R² ≥ 0.5 | |
-| `trim_to` | 50 | reads are trimmed to 50 bp before alignment |
+| `threads` | 8 | bowtie2 threads per library |
+| `qc_thresholds` | see `qc/report.html` | e.g. `{min_replicate_rho: 0.7}` |
 
-## Tests
-
-```bash
-pytest tests/test_units.py
-bash tests/synthetic/run.sh /tmp/condense-calc-test      # simulated experiment, ~1 min
-python tests/synthetic/check_truth.py /tmp/condense-calc-test
-```
-
-`tests/equivalence/run.sh` runs the authors' original Python 2 scripts on the same simulated reads
-and compares every table. See [docs/details.md](docs/details.md) for the processing steps and
-validation.
+More settings, multi-genome runs and the processing steps: [docs/details.md](docs/details.md).

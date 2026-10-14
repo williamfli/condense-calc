@@ -1,4 +1,4 @@
-# mamba env create -f environment.yml && mamba activate condense-calc && pip install -e .
+# mamba env create -f environment.yml   (also installs condense-calc itself from this folder)
 name: condense-calc
 channels:
   - conda-forge
@@ -18,3 +18,5 @@ dependencies:
   - snakemake-executor-plugin-slurm
   - pytest
   - pip
+  - pip:
+      - -e .

@@ -6,7 +6,9 @@ with the settings of the script that made the GEO tables (`submit_scripts/batch_
 
 ## Steps
 
-`<name>` is `<cell>_<sample>_<agent>_<tnum>_<rep>rep[_deep]`, `<series>` the same without `<tnum>`.
+`<name>` is one library: `<series>_<point>`, where the point numbers the concentrations of a series
+from 0 (the input). A sheet can set it in a `point` column. With a config (below) the names follow
+GEO: `<cell>_<sample>_<agent>_<tnum>_<rep>rep[_deep]`.
 
 | step | original script | settings | output |
 |---|---|---|---|
@@ -65,9 +67,10 @@ analysis set):
   reads.
 - H1 spermine, replicate 2, nine points: r = 0.94–0.98, with no offset at any point.
 
-The remaining differences are in repeats. A multi-mapping read's position depends on the genome
-index, and Park et al. used the 4DN hg38 index. `reads: {min_mapq: 10}` removes these reads, at the
-cost of no longer matching GEO.
+The remaining differences are in repeats, where reads map to several places. They are not caused
+by the bowtie2 version (2.3.5–2.5.5), the seed or the genome index: the 4DN hg38 index named in
+Park's scripts gives counts identical to NCBI's in every bin. `reads: {min_mapq: 10}` removes
+multi-mapping reads, at the cost of no longer matching GEO.
 
 ## Resources
 
@@ -82,3 +85,48 @@ Measured on hg38:
 
 All other steps need ≤ 2 GB. Memory requests double on the retry after an out-of-memory failure.
 Deep samples (~300 M pairs) take most of a day to align.
+
+## All settings
+
+Given with `--settings FILE` (YAML), or in a config file.
+
+| key | default | |
+|---|---|---|
+| `threads` | 8 | bowtie2 threads per library |
+| `bin_sizes` | `[1000, 10000]` | |
+| `reads: {min_mapq: 0}` | no MAPQ filter, as Park | e.g. 10 drops multi-mapping reads |
+| `reads: {dedup: false}` | duplicates kept, as Park | |
+| `reads: {mm: 10}` | | maximum edit distance |
+| `score: {missing_as_nan: false}` | bins without input reads are dropped | `true` writes them as NA |
+| `mscale` | `{Ca: 5}`, others 1 | molecule-number scale per agent |
+| `fit` | `{bin_size: 10000, min_tnum: 5, model: sigmoid, method: evolution, min_rsq: 0.5}` | c½ fit |
+| `trim_to` | 50 | reads are trimmed to 50 bp before alignment |
+| `qc` | `default` | `off`, `default`, `verbose` |
+| `qc_thresholds` | | overrides, e.g. `{min_replicate_rho: 0.7}`; the thresholds are listed in the report |
+| `chroms` | 1–N, X, Y | chromosomes to score |
+
+## Config files (several genomes, GEO names)
+
+`condense config.yaml` runs from a config instead of a sample sheet. Use this for libraries from
+several genomes, or to get file names as in GEO. Relative paths are read from the config's folder.
+
+```yaml
+samples: samples.tsv        # cell, sample, agent, tnum, rep, depth, fastq1, fastq2 (lanes comma-separated)
+titration_dir: titration    # <cell>_<sample>_<agent>.tsv: tnum, conc, survival_fraction
+genomes:                    # `condense reference hg38` prints these paths
+  hg38: {fasta: refs/hg38/hg38.fa, bowtie2_index: refs/hg38/hg38}
+cells:
+  H1: hg38                  # or {genome: hg38, chroms: [chr1, chr2]}
+```
+
+`depth: deep` gives per-nucleosome scores for that series. Any setting above can be added.
+
+## Tests
+
+```bash
+pytest tests/test_units.py
+bash tests/synthetic/run.sh /tmp/cc-test             # simulated experiment, ~2 min
+python tests/synthetic/check_truth.py /tmp/cc-test   # recovery of the simulated scores and c-half
+bash tests/synthetic/run_sheet.sh /tmp/cc-test       # same run from a sample sheet: identical tables
+bash tests/equivalence/run.sh /tmp/cc-test PARK_REPO PYTHON2   # identical to the original scripts
+```
