@@ -1,4 +1,4 @@
-# mamba env create -f environment.yml   (also installs condense-calc itself from this folder)
+# conda env create -f environment.yml   (also installs condense-calc itself from this folder)
 name: condense-calc
 channels:
   - conda-forge

@@ -8,13 +8,13 @@ to the authors' scripts.
 
 ```bash
 git clone git@github.com:williamfli/condense-calc.git
-mamba env create -f condense-calc/environment.yml     # or conda; installs everything, ~10 min
+conda env create -f condense-calc/environment.yml     # installs everything, ~10 min
 ```
 
 ## Run
 
 ```bash
-mamba activate condense-calc
+conda activate condense-calc
 condense init path/to/fastqs        # writes samples.tsv, one row per FASTQ
 # fill in the conc and fraction columns, then:
 condense samples.tsv                # results in results/ next to samples.tsv
