@@ -206,8 +206,11 @@ def cmd_run(args):
         res = ['mem_mb=4000', 'runtime=120']
         res += [f'slurm_account={args.account}'] if args.account else []
         res += [f'slurm_partition={args.partition}'] if args.partition else []
-        cmd += ['--executor', 'slurm', '--jobs', str(args.jobs), '--retries', '1', '--latency-wait', '60',
-                '--default-resources', *res]
+        # --cores is the thread budget, not the controller's cores: without it Snakemake takes the CPUs of
+        # the (1-core) controller job and caps every rule's threads at 1, so bowtie2 jobs get 1 CPU each.
+        # --jobs limits how many jobs run at once; this only has to be large enough not to bind.
+        cmd += ['--executor', 'slurm', '--jobs', str(args.jobs), '--cores', str(args.jobs * 64),
+                '--retries', '1', '--latency-wait', '60', '--default-resources', *res]
     else:
         cmd += ['--cores', str(args.cores)]
     if args.dry_run:
