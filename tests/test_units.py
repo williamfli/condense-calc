@@ -116,3 +116,38 @@ def test_simple_sheet(tmp_path):
     (tmp_path / 's.tsv').write_text('series\tconc\tfraction\tfastq\nX\t0.5\t1.4\tb_R1.fastq.gz\n')
     with pytest.raises(sheet.SheetError, match='fraction'):
         sheet.read_simple(tmp_path / 's.tsv', 'hg38', workdir=tmp_path / 'run')
+
+
+def _slurm_cmds(tmp_path, monkeypatch, extra, in_job):
+    """The commands `condense-calc run --slurm` would start (nothing is run)."""
+    from condense_calc import cli
+    cfg = tmp_path / 'config.yaml'
+    cfg.write_text('')
+    calls = []
+    monkeypatch.setattr(cli.subprocess, 'call', lambda cmd, **k: calls.append(cmd) or 0)
+    monkeypatch.setattr(cli.subprocess, 'run',
+                        lambda cmd, **k: calls.append(cmd) or type('R', (), {'stdout': '1'})())
+    if in_job:
+        monkeypatch.setenv('SLURM_JOB_ID', '1')
+    else:
+        monkeypatch.delenv('SLURM_JOB_ID', raising=False)
+    try:
+        cli.main(['run', str(cfg), '-o', str(tmp_path / 'out'), '--slurm', *extra])
+    except SystemExit:
+        pass
+    return calls
+
+
+def test_slurm_run_keeps_rule_threads(tmp_path, monkeypatch):
+    # inside the 1-core controller job, Snakemake must get a thread budget (--cores); without it,
+    # every rule's threads are capped at the controller's 1 CPU (seen 2026-10-18: align on 1 CPU)
+    cmd = _slurm_cmds(tmp_path, monkeypatch, [], in_job=True)[0]
+    assert '--executor' in cmd and '--cores' in cmd
+    assert int(cmd[cmd.index('--cores') + 1]) >= 64
+
+
+def test_slurm_controller_mail(tmp_path, monkeypatch):
+    cmd = _slurm_cmds(tmp_path, monkeypatch, ['--mail', 'me@example.org'], in_job=False)[0]
+    assert cmd[0] == 'sbatch' and '--mail-user=me@example.org' in cmd
+    assert '--mail-type=FAIL,TIME_LIMIT_80' in cmd
+    assert not any(c.startswith('--mail') for c in _slurm_cmds(tmp_path, monkeypatch, [], in_job=False)[0])

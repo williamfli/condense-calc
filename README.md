@@ -67,6 +67,7 @@ count *c* in a bin: −ln[(s+1)/Σ(s+1) ÷ (c+1)/Σ(c+1)] − ln *fraction*. Hig
 | `--nucleosomes` | also score every nucleosome; for deeply sequenced series |
 | `--qc off\|default\|verbose` | QC report detail (verbose adds duplicates, GC, dinucleotide periodicity) |
 | `--slurm`, `--account`, `--partition` | run on Slurm |
+| `--mail ADDRESS` | Slurm: email if the run fails or reaches 80% of its time limit |
 | `-o` | output folder |
 | `--settings FILE` | YAML with the settings below |
 

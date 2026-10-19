@@ -175,6 +175,7 @@ def _submit_controller(args, out):
            '-o', str(out / 'condense_%j.log')]
     cmd += ['-A', args.account] if args.account else []
     cmd += ['-p', args.partition] if args.partition else []
+    cmd += ['--mail-type=FAIL,TIME_LIMIT_80', f'--mail-user={args.mail}'] if args.mail else []
     cmd += ['--wrap', shlex.join(argv)]
     job = subprocess.run(cmd, check=True, capture_output=True, text=True).stdout.strip()
     print(f'Submitted job {job}. Progress: {out}/condense_{job}.log\n'
@@ -291,6 +292,8 @@ def main(argv=None):
     s.add_argument('--partition', help='Slurm partition(s), e.g. shared or shared,sapphire')
     s.add_argument('--time', default='3-00:00', help='Slurm: time limit of the controlling job (default 3 days)')
     s.add_argument('--jobs', type=int, default=100, help='Slurm: max jobs at once (default 100)')
+    s.add_argument('--mail', metavar='ADDRESS',
+                   help='Slurm: email ADDRESS if the run fails or reaches 80%% of its time limit')
     s.add_argument('-q', '--quiet', action='store_true', help='less progress output')
     s.add_argument('-n', '--dry-run', action='store_true', help='show what would run')
     s.set_defaults(func=cmd_run)
