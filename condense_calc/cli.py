@@ -110,6 +110,22 @@ def cmd_concat(args):
     gtab.write(args.out, header, rows)
 
 
+def cmd_stack(args):
+    """Rows of gtabs with the same header, one file after another (per-chromosome parts -> one table)."""
+    header = None
+    with gtab.open_text(args.out, 'wt') as out:
+        for path in args.inputs:
+            with gtab.open_text(path) as f:
+                first = f.readline()
+                if header is None:
+                    header = first
+                    out.write(first)
+                elif first != header:
+                    sys.exit(f'{path}: header differs from {args.inputs[0]}')
+                for line in f:
+                    out.write(line)
+
+
 def cmd_fit(args):
     tit = titration.read(args.titration)
     header, rows = fit.fit_table(args.input, tit, args.tnums, model=args.model, method=args.method,
@@ -359,6 +375,11 @@ def main(argv=None):
     s.add_argument('--chroms', nargs='+')
     s.add_argument('-o', '--out', nargs='+', required=True)
     s.set_defaults(func=cmd_num)
+
+    s = sub.add_parser('stack', help='rows of gtabs with the same header, in the order given')
+    s.add_argument('--inputs', nargs='+', required=True)
+    s.add_argument('-o', '--out', required=True)
+    s.set_defaults(func=cmd_stack)
 
     s = sub.add_parser('concat', help='outer join of gtabs (concat_gtab.py)')
     s.add_argument('--inputs', nargs='+', required=True)

@@ -78,6 +78,7 @@ Settings (defaults reproduce the GEO tables):
 | `reads: {dedup: false}` | duplicates kept | |
 | `bin_sizes` | `[1000, 10000]` | |
 | `threads` | 8 | bowtie2 threads per library |
+| `split_bincount` | `deep` | bin counts as one job per chromosome: `deep` libraries only, `true` (all) or `false`; same tables, faster for deep libraries |
 | `qc_thresholds` | see `qc/report.html` | e.g. `{min_replicate_rho: 0.7}` |
 
 More settings, multi-genome runs and the processing steps: [docs/details.md](docs/details.md).

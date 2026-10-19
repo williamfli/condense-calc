@@ -32,13 +32,17 @@ FIT = {'bin_size': 10000, 'min_tnum': 5, 'model': 'sigmoid', 'method': 'evolutio
 READS = {'mm': 10, 'min_mapq': 0, 'dedup': False, **cfg('reads', {})}
 READ_OPTS = (f"--mm {READS['mm']} --min-mapq {READS['min_mapq']}" + (' --dedup' if READS['dedup'] else ''))
 NAN_OPT = '--missing-as-nan' if cfg('score', {}).get('missing_as_nan', False) else ''
+# bin counts of a library as one job per chromosome (then stacked): 'deep' (deep libraries only), true, false.
+# Same table either way; a deep library takes hours in one job (one Python pass over the BAM).
+SPLIT_BIN = str(cfg('split_bincount', 'deep')).lower()
+assert SPLIT_BIN in ('deep', 'true', 'false'), f'split_bincount must be deep, true or false, not {SPLIT_BIN!r}'
 QC = str(cfg('qc', 'default')).lower()
 assert QC in ('off', 'default', 'verbose'), f'qc must be off, default or verbose, not {QC!r}'
 
 # ---------------------------------------------------------------- genomes and samples
 import sys
 sys.path.insert(0, str(PKG_PARENT))
-from condense_calc import sheet
+from condense_calc import gtab, sheet
 
 GENOMES = {g: {'fasta': P(v['fasta']), 'bowtie2_index': P(v['bowtie2_index'])}
            for g, v in config['genomes'].items()}
@@ -97,6 +101,9 @@ def titration_of(series):
 
 
 ALL_CHROMS = sorted({c for v in CELLS.values() for c in v['chroms']})
+SPLIT_NAMES = [n for n in SAMPLES.index if SPLIT_BIN == 'true' or (SPLIT_BIN == 'deep' and SAMPLES.loc[n, 'deep'])]
+WHOLE_NAMES = [n for n in SAMPLES.index if n not in SPLIT_NAMES]
+alt = lambda names: '|'.join(map(re.escape, names)) or '(?!)'      # '(?!)' matches nothing
 DEEP_SERIES = [s for s, g in SERIES.items() if g['deep'].all()]
 FIT_KB = KB.get(int(FIT['bin_size']))
 FIT_SERIES = [s for s, g in SERIES.items() if FIT_KB and len(g) >= int(FIT['min_tnum'])]
@@ -157,6 +164,7 @@ rule align:
 
 # ---------------------------------------------------------------- binned scores
 rule bincount:
+    wildcard_constraints: name=alt(WHOLE_NAMES)
     input: bam='bam/{name}.bam', bai='bam/{name}.bam.bai'
     output: 'bin/{name}_{kb}_bin.gtab.gz'
     params:
@@ -169,6 +177,34 @@ rule bincount:
     shell:
         f'{CLI} bincount --bam {{input.bam}} --fasta {{params.fasta}} --chroms {{params.chroms}} '
         f'--win {{params.win}} {READ_OPTS} -o {{output}}'
+
+def chrom_share(name, chrom):
+    """Share of the genome (chromosomes of the library) in `chrom`, from the FASTA index."""
+    sizes = dict(l.split('\t')[:2] for l in Path(fasta_of(name) + '.fai').read_text().splitlines())
+    return int(sizes[chrom]) / sum(int(sizes[c]) for c in chroms_of(name))
+
+rule bincount_chrom:
+    # one chromosome of a split library; each read is fetched from its own chromosome (BAM index),
+    # so the rows are those of the whole-library bincount for this chromosome
+    wildcard_constraints: name=alt(SPLIT_NAMES)
+    input: bam='bam/{name}.bam', bai='bam/{name}.bam.bai'
+    output: temp('bin/parts/{name}_{kb}_{chrom}_bin.gtab.gz')
+    params:
+        fasta=lambda w: fasta_of(w.name),
+        win=lambda w: {v: k for k, v in KB.items()}[w.kb],
+    resources:
+        mem_mb=lambda w, input, attempt: mb([input.bam], 0.6 * chrom_share(w.name, w.chrom), 2000) * attempt,
+        runtime=lambda w, input: mb([input.bam], 0.02 * chrom_share(w.name, w.chrom), 30),
+    shell:
+        f'{CLI} bincount --bam {{input.bam}} --fasta {{params.fasta}} --chroms {{wildcards.chrom}} '
+        f'--win {{params.win}} {READ_OPTS} -o {{output}}'
+
+rule bincount_stack:
+    wildcard_constraints: name=alt(SPLIT_NAMES)
+    input: lambda w: [f'bin/parts/{w.name}_{w.kb}_{c}_bin.gtab.gz' for c in gtab.sort_chroms(chroms_of(w.name))]
+    output: 'bin/{name}_{kb}_bin.gtab.gz'
+    resources: mem_mb=1000, runtime=30
+    shell: f'{CLI} stack --inputs {{input}} -o {{output}}'
 
 rule score_bin:
     input:
