@@ -9,6 +9,7 @@ import argparse
 import json
 import os
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -156,7 +157,7 @@ def _workflow_config(args, out):
     if src.suffix in ('.yaml', '.yml'):
         return src
     _check(src)                                                      # fail early, before any job starts
-    name, fasta, index = reference.ensure(args.genome, args.refs, args.cores)
+    name, fasta, index = reference.ensure(args.genome, args.refs, _local_cores(args))
     cfg = yaml.safe_load(Path(args.settings).read_text()) if args.settings else {}
     cfg.update(sheet=str(src), genome=name, genomes={name: {'fasta': fasta, 'bowtie2_index': index}},
                nucleosomes=args.nucleosomes)
@@ -167,17 +168,59 @@ def _workflow_config(args, out):
     return path
 
 
+CONTROLLER = 'CONDENSE_CONTROLLER'     # set in the controller job, which runs the workflow itself
+
+
+def _local_cores(args):
+    """--cores, else the CPUs this process may use (in a Slurm job: its allocation, not the node)."""
+    return args.cores or len(os.sched_getaffinity(0))
+
+
+def _local_mem_mb(cores):
+    """Memory (MB) for a local run: the Slurm allocation if inside one, else 90% of the machine."""
+    env = os.environ
+    if env.get('SLURM_MEM_PER_NODE'):
+        return int(env['SLURM_MEM_PER_NODE'])
+    if env.get('SLURM_MEM_PER_CPU'):
+        return int(env['SLURM_MEM_PER_CPU']) * cores
+    try:
+        return int(os.sysconf('SC_PAGE_SIZE') * os.sysconf('SC_PHYS_PAGES') * 0.9 / 1e6)
+    except (ValueError, OSError, AttributeError):
+        return None
+
+
+def _on_login_node():
+    """A cluster (sbatch exists) but not inside a job: e.g. a Cannon login node, meant for light work."""
+    return 'SLURM_JOB_ID' not in os.environ and shutil.which('sbatch') is not None
+
+
+def _sbatch(args, cmd):
+    cmd = cmd[:1] + ['--parsable'] + (['-A', args.account] if args.account else []) + \
+        (['-p', args.partition] if args.partition else []) + \
+        (['--mail-type=FAIL,TIME_LIMIT_80', f'--mail-user={args.mail}'] if args.mail else []) + cmd[1:]
+    return subprocess.run(cmd, check=True, capture_output=True, text=True).stdout.strip()
+
+
 def _submit_controller(args, out):
-    """Run this command as a small Slurm job that submits and watches the steps."""
+    """Run this command as a small Slurm job that submits and watches the steps. A genome that still has
+    to be downloaded or indexed is prepared first in its own job (8 cores), which the controller waits for."""
+    dep = []
+    if Path(args.sheet).suffix not in ('.yaml', '.yml'):
+        todo = reference.missing(args.genome, args.refs)
+        if todo:
+            ref = [sys.executable, '-m', 'condense_calc', 'reference', str(reference.locate(args.genome)[1])
+                   if args.genome not in reference.KNOWN else args.genome, '--threads', '8']
+            ref += ['--refs', args.refs] if args.refs else []
+            # bowtie2-build of a mammalian genome: ~1-2 h on 8 cores, < 16 GB
+            rjob = _sbatch(args, ['sbatch', '-J', 'condense-reference', '-c', '8', '--mem', '32G', '-t', '0-12:00',
+                                  '-o', str(out / 'condense_reference_%j.log'), '--wrap', shlex.join(ref)])
+            print(f'Submitted job {rjob} to {todo}; the run starts when it is done.')
+            dep = [f'--dependency=afterok:{rjob}', '--kill-on-invalid-dep=yes']
     argv = [sys.executable, '-m', 'condense_calc', *sys.argv[1:]]
     # controller: 1 core, < 1 GB; it runs as long as the whole workflow
-    cmd = ['sbatch', '--parsable', '-J', 'condense', '-c', '1', '--mem', '2G', '-t', args.time,
-           '-o', str(out / 'condense_%j.log')]
-    cmd += ['-A', args.account] if args.account else []
-    cmd += ['-p', args.partition] if args.partition else []
-    cmd += ['--mail-type=FAIL,TIME_LIMIT_80', f'--mail-user={args.mail}'] if args.mail else []
-    cmd += ['--wrap', shlex.join(argv)]
-    job = subprocess.run(cmd, check=True, capture_output=True, text=True).stdout.strip()
+    job = _sbatch(args, ['sbatch', '-J', 'condense', '-c', '1', '--mem', '2G', '-t', args.time, *dep,
+                         f'--export=ALL,{CONTROLLER}=1', '-o', str(out / 'condense_%j.log'),
+                         '--wrap', shlex.join(argv)])
     print(f'Submitted job {job}. Progress: {out}/condense_{job}.log\n'
           f'Results will be in {out}/tables and {out}/qc/report.html')
 
@@ -188,13 +231,30 @@ def cmd_run(args):
         sys.exit(f'{args.sheet} not found')
     out = Path(args.outdir).resolve() if args.outdir else src.parent / 'results'
     out.mkdir(parents=True, exist_ok=True)
-    if args.slurm and not args.dry_run and 'SLURM_JOB_ID' not in os.environ:
-        if src.suffix not in ('.yaml', '.yml'):
+    is_sheet = src.suffix not in ('.yaml', '.yml')
+    # --slurm submits a controller job, also from an interactive (salloc / Open OnDemand) session: run in
+    # the foreground there, the workflow would die with the session
+    if args.slurm and not args.dry_run and os.environ.get(CONTROLLER) != '1':
+        if is_sheet:
             try:
                 _check(src)
             except sheet.SheetError as e:
                 sys.exit(str(e))
         return _submit_controller(args, out)
+    if not args.slurm and not args.dry_run and args.cores is None and _on_login_node():
+        sys.exit('This looks like a cluster login node (sbatch is available, but this is not a Slurm job).\n'
+                 'Login nodes are for light work: add --slurm to run each step as a Slurm job, or run inside\n'
+                 'a job (salloc / sbatch). To run here anyway, give --cores N.')
+    if args.dry_run and is_sheet:
+        todo = reference.missing(args.genome, args.refs)
+        if todo:
+            try:
+                _check(src)
+            except sheet.SheetError as e:
+                sys.exit(str(e))
+            print(f'Sample sheet OK. Dry run stops here: the run would first {todo}.\n'
+                  'Run without -n to do that (with --slurm it runs as its own job).')
+            sys.exit(0)
     try:
         cfg = _workflow_config(args, out)
     except sheet.SheetError as e:
@@ -213,14 +273,21 @@ def cmd_run(args):
         cmd += ['--executor', 'slurm', '--jobs', str(args.jobs), '--cores', str(args.jobs * 64),
                 '--retries', '1', '--latency-wait', '60', '--default-resources', *res]
     else:
-        cmd += ['--cores', str(args.cores)]
+        cores = _local_cores(args)
+        cmd += ['--cores', str(cores)]
+        mem = _local_mem_mb(cores)
+        # steps request memory (mem_mb); without a total, Snakemake would start as many as there are
+        # cores and could run the machine (or the job's allocation) out of memory
+        cmd += ['--resources', f'mem_mb={mem}'] if mem else []
     if args.dry_run:
         cmd.append('--dry-run')
     if args.quiet:
         cmd += ['--quiet', 'rules']
     cmd += args.snakemake_args
     print('+ ' + ' '.join(cmd), flush=True)
-    rc = subprocess.call(cmd)
+    # the tools (snakemake, bowtie2, samtools) of this Python's environment, also when it is not activated
+    env = dict(os.environ, PATH=f'{Path(sys.executable).parent}{os.pathsep}{os.environ.get("PATH", "")}')
+    rc = subprocess.call(cmd, env=env)
     flags = out / 'qc' / 'flags.tsv'
     if rc == 0 and not args.dry_run:
         msg = f'\nTables: {out / "tables"}'
@@ -285,8 +352,8 @@ def main(argv=None):
                    help='also score every nucleosome (for deeply sequenced series; slower)')
     s.add_argument('--qc', choices=['off', 'default', 'verbose'], help='QC level (default: default)')
     s.add_argument('--settings', help='YAML file with further settings (see README)')
-    s.add_argument('--cores', type=int, default=int(os.environ.get('SLURM_CPUS_PER_TASK') or os.cpu_count() or 4),
-                   help='local run: cores to use (default: all)')
+    s.add_argument('--cores', type=int,
+                   help='local run: cores to use (default: the CPUs this process may use, e.g. a job\'s allocation)')
     s.add_argument('--slurm', action='store_true', help='submit each step as a Slurm job')
     s.add_argument('--account', help='Slurm account')
     s.add_argument('--partition', help='Slurm partition(s), e.g. shared or shared,sapphire')

@@ -78,13 +78,17 @@ Measured on hg38:
 
 | step | memory | time |
 |---|---|---|
-| align | ~6 GB | about 0.8 M read pairs per minute with 8 threads |
-| bincount | ~3 GB plus 0.6 × the BAM size | |
-| score_bin | 4.4 GB at 1 kb | |
+| align | ~6.3 GB | ~1 M read pairs per minute with 8 threads; a deep library (~330 M pairs) ~2 h with 24 |
+| bincount | ~3 GB plus 0.6 × the BAM size (deep: 8.4 GB used) | deep: ~20 min |
+| score_bin | 4.4–4.9 GB at 1 kb | ~1 min |
+| peaks (per chromosome) | ≤ 11.5 GB (deep, chr1) | ≤ 5 min |
+| areas (per chromosome) | ≤ 6.5 GB (deep) | ≤ 3 min |
+| score_ncov | ≤ 14.8 GB (deep) | ≤ 7 min |
 | fit | 0.5 GB | ~2.5 h for 10 points (single core) |
 
-All other steps need ≤ 2 GB. Memory requests double on the retry after an out-of-memory failure.
-Deep samples (~300 M pairs) take most of a day to align.
+Deep figures: H1, 3 libraries of ~320 M pairs each, 2026-10-19. Other steps need ≤ 2 GB. Memory requests
+double on the retry after an out-of-memory failure, and time limits double on the retry after a timeout
+(up to `max_runtime`, 3 days). A deep series with per-nucleosome scores takes ~3–4 h from FASTQ.
 
 ## All settings
 
@@ -103,7 +107,8 @@ Given with `--settings FILE` (YAML), or in a config file.
 | `trim_to` | 50 | reads are trimmed to 50 bp before alignment |
 | `qc` | `default` | `off`, `default`, `verbose` |
 | `qc_thresholds` | | overrides, e.g. `{min_replicate_rho: 0.7}`; the thresholds are listed in the report |
-| `chroms` | 1–N, X, Y | chromosomes to score |
+| `chroms` | hg38/mm10-like: 1–N, X, Y; other genomes: every sequence ≥ 1% of the longest, except the mitochondrial | chromosomes to score |
+| `max_runtime` | 4320 | minutes; the longest time limit a retried step may ask for |
 
 ## Config files (several genomes, GEO names)
 

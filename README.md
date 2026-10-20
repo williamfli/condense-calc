@@ -21,12 +21,18 @@ condense samples.tsv                # results in results/ next to samples.tsv
 ```
 
 On a Slurm cluster, add `--slurm` (and `--account`, `--partition` if needed). `condense` then
-submits itself as a small job, which runs each step as its own job, and returns.
+submits itself as a small job, which runs each step as its own job, and returns; this also works
+from an interactive session (salloc, Open OnDemand), which can then be closed. `--mail ADDRESS`
+sends an email if the run fails. Without `--slurm`, `condense` runs on the machine it is started on,
+with the CPUs and memory it may use there (in a Slurm job: that job's allocation); on a cluster login
+node it stops and asks for `--slurm` (or `--cores N` to run there anyway).
 
-The first run downloads the genome (hg38 by default, ~7 GB, ~30 min) into `~/.cache/condense-calc`.
+The first run downloads the genome (hg38 by default, ~7 GB, ~30 min) into `~/.cache/condense-calc`;
+with `--slurm` this, or building the index of `--genome FASTA`, runs as its own job first.
 To keep genomes elsewhere or share them, set `CONDENSE_REFS=/path/to/refs`.
 
-Re-running the same command resumes an interrupted run. `-n` shows what would run.
+Re-running the same command resumes an interrupted run. `-n` checks the sample sheet and shows what
+would run (it does not download a genome).
 
 ## Sample sheet
 

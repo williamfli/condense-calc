@@ -38,19 +38,18 @@ assert QC in ('off', 'default', 'verbose'), f'qc must be off, default or verbose
 # ---------------------------------------------------------------- genomes and samples
 import sys
 sys.path.insert(0, str(PKG_PARENT))
-from condense_calc import sheet
+from condense_calc import reference, sheet
 
 GENOMES = {g: {'fasta': P(v['fasta']), 'bowtie2_index': P(v['bowtie2_index'])}
            for g, v in config['genomes'].items()}
 
 
 def default_chroms(fasta):
-    """Chromosomes 1-N, X and Y from the FASTA index (with or without the 'chr' prefix)."""
+    """Chromosomes to process when the settings name none (reference.default_chroms)."""
     fai = Path(fasta + '.fai')
     if not fai.exists():
         raise ValueError(f'{fai} not found; run: samtools faidx {fasta}')
-    names = [line.split('\t')[0] for line in fai.read_text().splitlines()]
-    return [n for n in names if re.fullmatch(r'(chr)?([0-9]+|X|Y)', n)]
+    return reference.default_chroms(fai)
 
 
 if 'sheet' in config:       # sample sheet (condense init); one genome
@@ -130,6 +129,14 @@ rule all:
     input: final_outputs()
 
 
+MAX_RUNTIME = int(cfg('max_runtime', 3 * 24 * 60))     # minutes; the time limit of shared/sapphire
+
+
+def rt(minutes, attempt):
+    """Runtime (minutes) for this attempt: doubles on the retry after a timeout, up to MAX_RUNTIME."""
+    return min(MAX_RUNTIME, int(minutes * attempt))
+
+
 def mb(path_list, factor, base):
     """Memory request (MB) from input size: base + factor * input MB."""
     return int(base + factor * sum(Path(p).stat().st_size for p in path_list if Path(p).exists()) / 1e6)
@@ -149,7 +156,7 @@ rule align:
         r2=lambda w, input: ','.join(input.r2),
     threads: THREADS
     # ~0.8 M pairs per minute with 8 threads; 6 GB
-    resources: mem_mb=lambda w, attempt: 9000 * attempt, runtime=48 * 60
+    resources: mem_mb=lambda w, attempt: 9000 * attempt, runtime=lambda w, attempt: rt(48 * 60, attempt)
     log: 'logs/align/{name}.log'
     shell:
         f'bowtie2 -p {{threads}} --trim-to {TRIM} -x {{params.index}} -1 {{params.r1}} -2 {{params.r2}} 2> {{log}} '
@@ -165,7 +172,7 @@ rule bincount:
         win=lambda w: {v: k for k, v in KB.items()}[w.kb],
     resources:
         mem_mb=lambda w, input, attempt: mb([input.bam], 0.6, 3000) * attempt,
-        runtime=lambda w, input: mb([input.bam], 0.02, 60),
+        runtime=lambda w, input, attempt: rt(mb([input.bam], 0.02, 60), attempt),
     shell:
         f'{CLI} bincount --bam {{input.bam}} --fasta {{params.fasta}} --chroms {{params.chroms}} '
         f'--win {{params.win}} {READ_OPTS} -o {{output}}'
@@ -180,7 +187,7 @@ rule score_bin:
         tnum=lambda w: SAMPLES.loc[w.name, 'tnum'],
         chroms=lambda w: ' '.join(chroms_of(w.name)),
     # 1 kb, hg38: 4.4 GB
-    resources: mem_mb=lambda w, attempt: (7000 if w.kb == '1kb' else 2000) * attempt, runtime=120
+    resources: mem_mb=lambda w, attempt: (7000 if w.kb == '1kb' else 2000) * attempt, runtime=lambda w, attempt: rt(120, attempt)
     shell:
         f'{CLI} score --test {{input.test}} --control {{input.control}} --titration {{input.tit}} '
         f'--tnum {{params.tnum}} --chroms {{params.chroms}} {NAN_OPT} -o {{output}}'
@@ -189,7 +196,7 @@ rule table_bin:
     # one column per titration point (input excluded)
     input: lambda w: [f'score/{n}_{w.kb}_score.gtab.gz' for n in points(w.series)]
     output: 'tables/{series}_{kb}_score.gtab.gz'
-    resources: mem_mb=lambda w, attempt: 2000 * attempt, runtime=60
+    resources: mem_mb=lambda w, attempt: 2000 * attempt, runtime=lambda w, attempt: rt(60, attempt)
     shell: f'{CLI} concat --inputs {{input}} -o {{output}}'
 
 # ---------------------------------------------------------------- per-nucleosome scores (deep series)
@@ -197,7 +204,7 @@ rule peaks:
     # nucleosome dyads, called on the input sample only
     input: bam='bam/{name}.bam', bai='bam/{name}.bam.bai'
     output: 'peaks/{name}_{chrom}_peak.gtab.gz'
-    resources: mem_mb=lambda w, attempt: 24000 * attempt, runtime=12 * 60
+    resources: mem_mb=lambda w, attempt: 24000 * attempt, runtime=lambda w, attempt: rt(12 * 60, attempt)
     shell: f'{CLI} peaks --bam {{input.bam}} --chrom {{wildcards.chrom}} {READ_OPTS} -o {{output}}'
 
 rule areas:
@@ -209,7 +216,7 @@ rule areas:
         ncov='areas/{name}_{chrom}_Ncov.gtab.gz',
         bdata='areas/{name}_{chrom}_171win25step_Bdata.gtab.gz',
     params: fasta=lambda w: fasta_of(w.name)
-    resources: mem_mb=lambda w, attempt: 16000 * attempt, runtime=8 * 60
+    resources: mem_mb=lambda w, attempt: 16000 * attempt, runtime=lambda w, attempt: rt(8 * 60, attempt)
     shell:
         f'{CLI} areas --bam {{input.bam}} --fasta {{params.fasta}} --chrom {{wildcards.chrom}} '
         f'--peaks {{input.peaks}} {READ_OPTS} --ncov-out {{output.ncov}} --bdata-out {{output.bdata}}'
@@ -224,7 +231,7 @@ rule score_ncov:
     params:
         tnum=lambda w: SAMPLES.loc[w.name, 'tnum'],
         outs=lambda w: ' '.join(f'score/{w.name}_{c}_score.gtab.gz' for c in chroms_of(w.name)),
-    resources: mem_mb=lambda w, attempt: 16000 * attempt, runtime=4 * 60
+    resources: mem_mb=lambda w, attempt: 16000 * attempt, runtime=lambda w, attempt: rt(4 * 60, attempt)
     shell:
         f'{CLI} score --test {{input.test}} --control {{input.control}} --titration {{input.tit}} '
         f'--tnum {{params.tnum}} {NAN_OPT} -o {{params.outs}}'
@@ -234,7 +241,7 @@ rule table_ncov:
     input: lambda w: [f'score/{n}.ncp_scores.done' for n in points(w.series)]
     output: 'tables/{series}_score/{series}_{chrom}_score.gtab.gz'
     params: files=lambda w: ' '.join(f'score/{n}_{w.chrom}_score.gtab.gz' for n in points(w.series))
-    resources: mem_mb=lambda w, attempt: 2000 * attempt, runtime=60
+    resources: mem_mb=lambda w, attempt: 2000 * attempt, runtime=lambda w, attempt: rt(60, attempt)
     shell: f'{CLI} concat --inputs {{params.files}} -o {{output}}'
 
 # ---------------------------------------------------------------- nucleosome numbers and c-half
@@ -247,7 +254,7 @@ rule num_bin:
         tnum=lambda w: SAMPLES.loc[w.name, 'tnum'],
         mscale=lambda w: MSCALE.get(SAMPLES.loc[w.name, 'agent'], 1),
         chroms=lambda w: ' '.join(chroms_of(w.name)),
-    resources: mem_mb=lambda w, attempt: 2000 * attempt, runtime=60
+    resources: mem_mb=lambda w, attempt: 2000 * attempt, runtime=lambda w, attempt: rt(60, attempt)
     shell:
         f'{CLI} num --inputs {{input.bins}} --titration {{input.tit}} --tnum {{params.tnum}} '
         f'--mscale {{params.mscale}} --chroms {{params.chroms}} -o {{output}}'
@@ -255,7 +262,7 @@ rule num_bin:
 rule table_num:
     input: lambda w: [f'num/{n}_{w.kb}_num.gtab.gz' for n in SERIES[w.series]['name']]
     output: 'tables/{series}_{kb}_num.gtab.gz'
-    resources: mem_mb=lambda w, attempt: 2000 * attempt, runtime=60
+    resources: mem_mb=lambda w, attempt: 2000 * attempt, runtime=lambda w, attempt: rt(60, attempt)
     shell: f'{CLI} concat --inputs {{input}} -o {{output}}'
 
 rule fit:
@@ -266,7 +273,7 @@ rule fit:
     output: 'tables/{series}_{kb}_4PL.gtab.gz'
     params: tnums=lambda w: ' '.join(SERIES[w.series]['tnum'].astype(str))
     # 10 kb hg38, ten points: 0.5 GB, ~2.5 h on one core
-    resources: mem_mb=lambda w, attempt: 1500 * attempt, runtime=12 * 60
+    resources: mem_mb=lambda w, attempt: 1500 * attempt, runtime=lambda w, attempt: rt(12 * 60, attempt)
     shell:
         f'{CLI} fit --input {{input.num}} --titration {{input.tit}} --tnums {{params.tnums}} '
         f"--model {FIT['model']} --method {FIT['method']} --min-rsq {FIT['min_rsq']} -o {{output}}"
@@ -279,7 +286,7 @@ rule qc_sample:
     input: bam='bam/{name}.bam', log='logs/align/{name}.log'
     output: 'qc/samples/{name}.json'
     threads: 4
-    resources: mem_mb=lambda w, attempt: (8000 if VERBOSE else 2000) * attempt, runtime=4 * 60
+    resources: mem_mb=lambda w, attempt: (8000 if VERBOSE else 2000) * attempt, runtime=lambda w, attempt: rt(4 * 60, attempt)
     shell:
         f"{CLI} qc-sample --bam {{input.bam}} --bowtie2-log {{input.log}} --mm {READS['mm']} "
         f"--min-mapq {READS['min_mapq']} --threads {{threads}} {VERBOSE} -o {{output}}"
@@ -299,7 +306,7 @@ rule qc_series:
         fit=lambda w, input: f'--fit {input.fit[0]}' if input.fit else '',
         peaks=lambda w, input: f'--peaks {" ".join(input.peaks)}' if input.peaks else '',
         fasta=lambda w: fasta_of(SERIES[w.series].iloc[0]['name']),
-    resources: mem_mb=lambda w, attempt: 4000 * attempt, runtime=60
+    resources: mem_mb=lambda w, attempt: 4000 * attempt, runtime=lambda w, attempt: rt(60, attempt)
     shell:
         f'{CLI} qc-series --series {{wildcards.series}} --samples {{input.samples}} --bins {{input.bins}} '
         f'--table {{input.table}} --titration {{input.tit}} {{params.fit}} {{params.peaks}} '
@@ -311,7 +318,7 @@ rule qc_replicates:
     params:
         args=lambda w: ' '.join(f'--tables {kb} ' + ' '.join(f'tables/{s}_{kb}_score.gtab.gz' for s in REP_GROUPS[w.group])
                                 for kb in KB.values())
-    resources: mem_mb=lambda w, attempt: 8000 * attempt, runtime=60
+    resources: mem_mb=lambda w, attempt: 8000 * attempt, runtime=lambda w, attempt: rt(60, attempt)
     shell: f'{CLI} qc-replicates --group {{wildcards.group}} {{params.args}} -o {{output.json}} --png {{output.png}}'
 
 rule qc_report:
@@ -321,7 +328,7 @@ rule qc_report:
         reps=[f'qc/replicates/{g}.json' for g in REP_GROUPS],
     output: html='qc/report.html', summary='qc/summary.tsv', flags='qc/flags.tsv'
     params: thresholds=lambda w: ' '.join(f'{k}={v}' for k, v in cfg('qc_thresholds', {}).items())
-    resources: mem_mb=1000, runtime=10
+    resources: mem_mb=1000, runtime=lambda w, attempt: rt(10, attempt)
     shell:
         f'{CLI} qc-report --samples {{input.samples}} --series {{input.series}} '
         f'--replicates {{input.reps}} --thresholds {{params.thresholds}} --outdir qc'

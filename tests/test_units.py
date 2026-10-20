@@ -127,10 +127,12 @@ def _slurm_cmds(tmp_path, monkeypatch, extra, in_job):
     monkeypatch.setattr(cli.subprocess, 'call', lambda cmd, **k: calls.append(cmd) or 0)
     monkeypatch.setattr(cli.subprocess, 'run',
                         lambda cmd, **k: calls.append(cmd) or type('R', (), {'stdout': '1'})())
-    if in_job:
+    if in_job:                                   # the controller job: runs the workflow itself
         monkeypatch.setenv('SLURM_JOB_ID', '1')
+        monkeypatch.setenv('CONDENSE_CONTROLLER', '1')
     else:
         monkeypatch.delenv('SLURM_JOB_ID', raising=False)
+        monkeypatch.delenv('CONDENSE_CONTROLLER', raising=False)
     try:
         cli.main(['run', str(cfg), '-o', str(tmp_path / 'out'), '--slurm', *extra])
     except SystemExit:
@@ -146,8 +148,130 @@ def test_slurm_run_keeps_rule_threads(tmp_path, monkeypatch):
     assert int(cmd[cmd.index('--cores') + 1]) >= 64
 
 
+def test_run_finds_tools_of_its_environment(tmp_path, monkeypatch):
+    # started as /path/env/bin/python -m condense_calc without activating the env: snakemake must still be found
+    import sys
+    from pathlib import Path
+    from condense_calc import cli
+    cfg = tmp_path / 'config.yaml'
+    cfg.write_text('')
+    monkeypatch.setenv('SLURM_JOB_ID', '1')
+    monkeypatch.setenv('CONDENSE_CONTROLLER', '1')
+    monkeypatch.setenv('PATH', '/usr/bin')
+    envs = []
+    monkeypatch.setattr(cli.subprocess, 'call', lambda cmd, env=None, **k: envs.append(env) or 0)
+    with pytest.raises(SystemExit):
+        cli.main(['run', str(cfg), '-o', str(tmp_path / 'out'), '--slurm'])
+    assert envs[0]['PATH'].split(':')[0] == str(Path(sys.executable).parent)
+
+
 def test_slurm_controller_mail(tmp_path, monkeypatch):
     cmd = _slurm_cmds(tmp_path, monkeypatch, ['--mail', 'me@example.org'], in_job=False)[0]
     assert cmd[0] == 'sbatch' and '--mail-user=me@example.org' in cmd
     assert '--mail-type=FAIL,TIME_LIMIT_80' in cmd
     assert not any(c.startswith('--mail') for c in _slurm_cmds(tmp_path, monkeypatch, [], in_job=False)[0])
+
+
+def _fai(tmp_path, seqs):
+    p = tmp_path / 'g.fa.fai'
+    p.write_text(''.join(f'{n}\t{L}\t0\t60\t61\n' for n, L in seqs))
+    return p
+
+
+def test_default_chroms(tmp_path):
+    from condense_calc.reference import default_chroms
+    hg = [(f'chr{c}', 50_000_000) for c in list(range(1, 23)) + ['X', 'Y']]
+    hg += [('chrM', 16_569), ('chrUn_KI270302v1', 2_274), ('chrEBV', 171_823)]
+    assert default_chroms(_fai(tmp_path, hg)) == [n for n, _ in hg[:24]]          # as the GEO run
+    dm6 = [('chr2L', 23_513_712), ('chr2R', 25_286_936), ('chr3L', 28_110_227), ('chr3R', 32_079_331),
+           ('chr4', 1_348_131), ('chrX', 23_542_271), ('chrY', 3_667_352), ('chrM', 19_524),
+           ('chrUn_DS483562v1', 1_001)]
+    assert default_chroms(_fai(tmp_path, dm6)) == [n for n, _ in dm6[:7]]
+    yeast = [(f'chr{r}', 800_000) for r in 'I II III IV V VI VII VIII IX X XI XII XIII XIV XV XVI'.split()]
+    assert default_chroms(_fai(tmp_path, yeast + [('chrM', 85_779)])) == [n for n, _ in yeast]
+    ncbi = [('NC_000001.11', 248_956_422), ('NC_000002.12', 242_193_529), ('NC_012920.1', 16_569)]
+    assert default_chroms(_fai(tmp_path, ncbi)) == ['NC_000001.11', 'NC_000002.12']
+    with pytest.raises(ValueError):
+        default_chroms(_fai(tmp_path, [('chrM', 16_569)]))
+
+
+def test_slurm_from_interactive_job_submits_controller(tmp_path, monkeypatch):
+    # inside salloc / Open OnDemand (SLURM_JOB_ID set, not the controller): submit, do not run in the session
+    monkeypatch.setenv('SLURM_JOB_ID', '7')
+    from condense_calc import cli
+    cfg = tmp_path / 'config.yaml'
+    cfg.write_text('')
+    seen = []
+    monkeypatch.setattr(cli.subprocess, 'call', lambda cmd, **k: seen.append(cmd) or 0)
+    monkeypatch.setattr(cli.subprocess, 'run', lambda cmd, **k: seen.append(cmd) or type('R', (), {'stdout': '1'})())
+    monkeypatch.delenv('CONDENSE_CONTROLLER', raising=False)
+    cli.main(['run', str(cfg), '-o', str(tmp_path / 'out'), '--slurm'])
+    assert seen[0][0] == 'sbatch' and '--export=ALL,CONDENSE_CONTROLLER=1' in seen[0]
+
+
+def _local_cmd(tmp_path, monkeypatch, extra, env):
+    from condense_calc import cli
+    cfg = tmp_path / 'config.yaml'
+    cfg.write_text('')
+    for k in ('SLURM_JOB_ID', 'SLURM_MEM_PER_NODE', 'SLURM_MEM_PER_CPU', 'CONDENSE_CONTROLLER'):
+        monkeypatch.delenv(k, raising=False)
+    for k, v in env.items():
+        monkeypatch.setenv(k, v)
+    seen = []
+    monkeypatch.setattr(cli.subprocess, 'call', lambda cmd, **k: seen.append(cmd) or 0)
+    try:
+        cli.main(['run', str(cfg), '-o', str(tmp_path / 'out'), *extra])
+    except SystemExit as e:
+        if not seen:
+            return str(e.code)
+    return seen[0]
+
+
+def test_local_run_resources(tmp_path, monkeypatch):
+    from condense_calc import cli
+    monkeypatch.setattr(cli.os, 'sched_getaffinity', lambda pid: {0, 1, 2})
+    cmd = _local_cmd(tmp_path, monkeypatch, [], {'SLURM_JOB_ID': '5', 'SLURM_MEM_PER_NODE': '4000'})
+    assert cmd[cmd.index('--cores') + 1] == '3'                   # the job's CPUs, not the node's
+    assert cmd[cmd.index('--resources') + 1] == 'mem_mb=4000'
+    cmd = _local_cmd(tmp_path, monkeypatch, ['--cores', '2'],
+                     {'SLURM_JOB_ID': '5', 'SLURM_MEM_PER_CPU': '1500'})
+    assert cmd[cmd.index('--cores') + 1] == '2' and cmd[cmd.index('--resources') + 1] == 'mem_mb=3000'
+
+
+def test_local_run_on_login_node_refused(tmp_path, monkeypatch):
+    from condense_calc import cli
+    monkeypatch.setattr(cli.shutil, 'which', lambda name: '/usr/bin/sbatch')
+    msg = _local_cmd(tmp_path, monkeypatch, [], {})
+    assert isinstance(msg, str) and 'login node' in msg
+    cmd = _local_cmd(tmp_path, monkeypatch, ['--cores', '2'], {})          # explicit: allowed
+    assert cmd[cmd.index('--cores') + 1] == '2'
+
+
+def test_dry_run_does_not_fetch_genome(tmp_path, monkeypatch, capsys):
+    from condense_calc import cli, reference
+    sh = tmp_path / 'sheet.tsv'
+    sh.write_text('series\tconc\tfraction\tfastq\n')
+    monkeypatch.setattr(cli, '_check', lambda src: None)
+    monkeypatch.setattr(reference, 'missing', lambda g, r=None: 'download hg38 into X')
+    monkeypatch.setattr(reference, 'ensure', lambda *a, **k: (_ for _ in ()).throw(AssertionError('fetched')))
+    with pytest.raises(SystemExit) as e:
+        cli.main(['run', str(sh), '-o', str(tmp_path / 'out'), '--slurm', '-n'])
+    assert e.value.code == 0 and 'would first download hg38' in capsys.readouterr().out
+
+
+def test_genome_prepared_in_own_job(tmp_path, monkeypatch):
+    from condense_calc import cli, reference
+    sh = tmp_path / 'sheet.tsv'
+    sh.write_text('series\tconc\tfraction\tfastq\n')
+    for k in ('SLURM_JOB_ID', 'CONDENSE_CONTROLLER'):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setattr(cli, '_check', lambda src: None)
+    monkeypatch.setattr(reference, 'missing', lambda g, r=None: 'download hg38 into X')
+    ids = iter(['111', '222'])
+    seen = []
+    monkeypatch.setattr(cli.subprocess, 'run',
+                        lambda cmd, **k: seen.append(cmd) or type('R', (), {'stdout': next(ids)})())
+    cli.main(['run', str(sh), '-o', str(tmp_path / 'out'), '--slurm'])
+    ref, ctl = seen
+    assert 'reference' in ref[-1] and ref[ref.index('-c') + 1] == '8'
+    assert '--dependency=afterok:111' in ctl and ctl[ctl.index('-c') + 1] == '1'
