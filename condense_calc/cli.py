@@ -347,7 +347,7 @@ def cmd_run(args):
     rc = subprocess.call(cmd, env=env)
     flags = out / 'qc' / 'flags.tsv'
     if rc == 0 and not args.dry_run:
-        msg = f'\nTables: {out / "tables"}'
+        msg = f'\nTables: {out / "tables"}\nRun record: {out / "run_info.json"}'
         if flags.exists():
             n = sum(1 for _ in open(flags)) - 1
             msg += f'\nQC report: {out / "qc" / "report.html"} ({n} flag{"s" if n != 1 else ""}; see {flags})'

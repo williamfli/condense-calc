@@ -540,3 +540,25 @@ def test_park_chry_rule():
         assert settings.park_chroms(label, hs) == hs[:-1], label
     for label in ('H1', 'E14_NCP_sp', 'GMX', 'H1_GM'):
         assert settings.park_chroms(label, hs) == hs, label
+
+
+def test_run_record(tmp_path, monkeypatch):
+    import json
+    from condense_calc import record, reference, settings
+    _fai(tmp_path, [('chr1', 1000)])
+    genomes = {'g': {'fasta': str(tmp_path / 'g.fa'), 'bowtie2_index': str(tmp_path / 'g')}}
+    logs = tmp_path / 'logs'
+    logs.mkdir()
+    (logs / 'A_0.bowtie2_version').write_text('/x/bowtie2-align-s version 2.5.5\n64-bit\n')
+    (logs / 'A_0.fastq_check.json').write_text('{"mode": "park", "files": []}')
+    monkeypatch.setattr(reference, 'bowtie2_version', lambda d=None: '2.5.5')
+    S = settings.resolve({'park': True, 'bowtie2': 'bowtie2'})
+    record.write(tmp_path / 'run_info.json', S, genomes, None, {'A': ['chr1']}, ['A_0', 'A_1'], logs=logs)
+    r = json.loads((tmp_path / 'run_info.json').read_text())
+    assert r['mode'] == 'park' and r['settings']['reads']['min_mapq'] == 0 and r['bowtie2']['version'] == '2.5.5'
+    assert r['references']['g'] == {**genomes['g'], 'sequences': 1, 'preset': None,
+                                    'fingerprint': reference.fingerprint(tmp_path / 'g.fa.fai')}
+    assert r['libraries']['A_0']['bowtie2'].endswith('2.5.5') and r['libraries']['A_1']['fastq_check'] is None
+    assert len(r['warnings']) == 1 and 'not a reference Park et al. used' in r['warnings'][0]
+    assert record.park_warnings(settings.resolve({}), genomes) == []
+    assert record.code_version().startswith('0.')

@@ -25,6 +25,7 @@ PRESETS = {
     'hg38_ucsc': {'name': 'UCSC hg38.fa with alt haplotypes', 'contigs': 455,
                   'fingerprint': '65b2bdfb1382e0a8a219be9c04a8f1a7'},
 }
+PARK = ('hg38_ucsc', 'mm10')            # the references Park et al. used
 # sequence sets met before under a preset's name
 OTHERS = {'a0b9649980a9063a8d14ff2bfd7c202c': "UCSC mm10 chr1-19, X, Y, M (22 sequences; condense-calc's "
                                               'mm10 until 2026-10)'}

@@ -23,7 +23,7 @@ CLI = 'python -m condense_calc'
 # Defaults and the Park preset (`park: true`) are in condense_calc/settings.py; unknown keys are an error.
 import sys
 sys.path.insert(0, str(PKG_PARENT))
-from condense_calc import reference, settings, sheet
+from condense_calc import record, reference, settings, sheet
 
 SETTINGS = settings.resolve(config)
 TRIM = SETTINGS['trim_to']
@@ -128,7 +128,7 @@ def final_outputs():
     out += [f'tables/{s}_{FIT_KB}_4PL.gtab.gz' for s in FIT_SERIES]
     if QC != 'off':
         out.append('qc/report.html')
-    return out
+    return out + ['run_info.json']
 
 
 rule all:
@@ -299,6 +299,24 @@ rule fit:
     shell:
         f'{CLI} fit --input {{input.num}} --titration {{input.tit}} --tnums {{params.tnums}} '
         f"--model {FIT['model']} --method {FIT['method']} --min-rsq {FIT['min_rsq']} -o {{output}}"
+
+# ---------------------------------------------------------------- run record
+USED_GENOMES = {g: GENOMES[g] for g in sorted({v['genome'] for v in CELLS.values()})}
+
+onstart:
+    for w in record.park_warnings(SETTINGS, USED_GENOMES):
+        print(f'WARNING: {w}', file=sys.stderr)
+
+localrules: run_info
+
+rule run_info:
+    # mode, effective settings, versions, references, chromosomes, and per library bowtie2 and the FASTQ check
+    input: [f'bam/{n}.bam' for n in SAMPLES.index]
+    output: 'run_info.json'
+    params: settings=SETTINGS
+    run:
+        record.write(output[0], SETTINGS, USED_GENOMES, BT2_DIR, {c: v['chroms'] for c, v in CELLS.items()},
+                     list(SAMPLES.index))
 
 # ---------------------------------------------------------------- quality control
 VERBOSE = '--verbose' if QC == 'verbose' else ''
