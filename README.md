@@ -1,7 +1,8 @@
 # condense-calc
 
 Turns condense-seq reads (paired-end FASTQ) into condensability scores and a QC report.
-The processing is that of Park et al. 2025 (GEO GSE252941); on test data the output is identical
+The processing is that of Park et al. 2025 (GEO GSE252941), with a few design fixes by default
+(see Settings). With `--park` it is Park's own processing; on test data the output is then identical
 to the authors' scripts.
 
 ## Install
@@ -69,7 +70,8 @@ count *c* in a bin: −ln[(s+1)/Σ(s+1) ÷ (c+1)/Σ(c+1)] − ln *fraction*. Hig
 
 | option | |
 |---|---|
-| `-g, --genome` | `hg38` (default), `mm10`, or a FASTA file (indexed on first use) |
+| `-g, --genome` | `hg38` (default; NCBI no-alt analysis set), `mm10` (ENCODE no-alt analysis set), `hg38_ucsc`, or a FASTA file (indexed on first use) |
+| `--park` | reproduce Park et al.'s GEO tables: their settings, UCSC hg38.fa for `hg38`, bowtie2 2.4.1. FASTQs: `condense fetch SRR... -o reads/` |
 | `--nucleosomes` | also score every nucleosome; for deeply sequenced series |
 | `--qc off\|default\|verbose` | QC report detail (verbose adds duplicates, GC, dinucleotide periodicity) |
 | `--slurm`, `--account`, `--partition` | run on Slurm |
@@ -77,12 +79,16 @@ count *c* in a bin: −ln[(s+1)/Σ(s+1) ÷ (c+1)/Σ(c+1)] − ln *fraction*. Hig
 | `-o` | output folder |
 | `--settings FILE` | YAML with the settings below |
 
-Settings (defaults reproduce the GEO tables):
+Settings (`--park` or `park: true` gives Park's values; keys given explicitly override them):
 
-| key | default | |
+| key | default | `--park` |
 |---|---|---|
-| `reads: {min_mapq: 0}` | no filter | e.g. 10 drops multi-mapping reads |
-| `reads: {dedup: false}` | duplicates kept | |
+| `reads: {min_mapq: 10}` | drops multi-mapping fragments (MAPQ < 10) | 0, no filter |
+| `score: {missing_as_nan: true}` | bins without input reads are NA rows | dropped |
+| `fastq_check` | `lite`: stop on SRA Lite reads (qualities all `?`) | `park`: also read names |
+| `bowtie2` | `bowtie2` (this environment's, 2.5.5) | `2.4.1`, installed once |
+| `bdata` | `false` | `false` |
+| `reads: {dedup: false}` | duplicates kept | same |
 | `bin_sizes` | `[1000, 10000]` | |
 | `threads` | 8 | bowtie2 threads per library |
 | `qc_thresholds` | see `qc/report.html` | e.g. `{min_replicate_rho: 0.7}` |

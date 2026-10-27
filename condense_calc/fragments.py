@@ -10,7 +10,7 @@ Kept, as in the original:
   - edit distance NM <= mm_cutoff (a read without an NM tag is kept)
   - min_mapq: MAPQ of the forward read >= min_mapq. Default 10: below that bowtie2 picks among equally good
     hits by a seed from the read's name and qualities, so where the fragment is counted depends on how the
-    FASTQ was written (geo_test/variants/FINDINGS.md). Park mode: 0 (the original's filter is commented out).
+    FASTQ was written, not on the sample. Park mode: 0 (the original's filter is commented out).
   - dedup: drop fragments with the same (chromosome, start, template length); off by default and in the original
 Fragment-length windows differ by stage, so they are applied later (see select()).
 """

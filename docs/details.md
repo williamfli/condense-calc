@@ -3,6 +3,7 @@
 condense-calc is a Python 3 port of the preprocessing scripts of Park et al. 2025
 ([spark159/condense-seq](https://github.com/spark159/condense-seq) `prepro_scripts`, commit `a8d2dd8`),
 with the settings of the script that made the GEO tables (`submit_scripts/batch_submit_ver7.py`).
+The defaults change a few of them (`condense_calc/settings.py`); `--park` (`park: true`) restores all.
 
 ## Steps
 
@@ -23,25 +24,27 @@ GEO: `<cell>_<sample>_<agent>_<tnum>_<rep>rep[_deep]`.
 | fit | `logistic_fit_ver3.py` | 10 kb, series with ≥ 5 points; sigmoid, top 1, bottom 0, rate 0–100, differential evolution (seed 3); R² ≥ 0.5 | `tables/<series>_10kb_4PL.gtab.gz` |
 
 Score: −ln[(s+1)/Σ(s+1) ÷ (c+1)/Σ(c+1)] − ln *f*, summed over rows with input *c* > 0; rows without
-input reads are dropped.
+input reads are written as NA (`--park`: dropped).
 
-Reproduced as in the original:
+Reproduced as in the original, with the default's differences:
 - **Reads:** each fragment is counted once, from its forward read. Kept: proper pairs with the mate
-  mapped and edit distance ≤ 10. No MAPQ filter and no duplicate removal.
+  mapped and edit distance ≤ 10, MAPQ ≥ 10 (`--park`: no MAPQ filter). No duplicate removal.
 - **Fragment centre:** even lengths go to the left centre base in `bincount`; the peak caller splits
-  them 0.5/0.5.
-- **Peak caller:** greedy and unsmoothed. Equal dyad counts are ordered as Python 2 sorted them.
-  `condense-calc peaks --fast` uses a plain tie rule instead.
+  them 0.5/0.5. The default takes the centre from the fragment's interval; `--park` keeps the
+  original's formula, one base off for odd fragments counted from the right-hand read (never the case
+  with bowtie2 end-to-end pairs), and its wrap of a centre before position 0 to the last bin.
+- **Peak caller:** greedy and unsmoothed. Equal dyad counts are taken from the lowest position up;
+  `--park` orders them as Python 2 sorted them.
 - **Numbers in text output:** rounded and printed as Python 2 did, so files compare byte for byte.
 - **Not available:** `bowtie-submit_ver2`, which the GEO driver calls, is missing from the authors'
   repository; the align step uses `bowtie-submit` with the driver's `trim_to = 50`.
 
-Sliding-window areas (`areas/*_Bdata*`) are computed but not scored; GEO has no table of them.
-`condense-calc score` can score them.
+Sliding-window areas (`areas/*_Bdata*`) are computed only with `bdata: true` and not scored; GEO has
+no table of them. `condense-calc score` can score them.
 
 ## Validation
 
-**Against the original scripts** (`tests/equivalence/run.sh`). A simulated experiment of 600 kb is
+**Against the original scripts** (`tests/equivalence/run.sh`, in Park mode). A simulated experiment of 600 kb is
 used: 3 chromosomes, a duplicated 2 kb segment, a 5 kb N gap, 3,127 nucleosomes, a 6-point shallow
 series and a 3-point deep series. Every table is identical:
 
@@ -58,8 +61,9 @@ series and a 3-point deep series. Every table is identical:
 | fit | 1 | 420/420 |
 
 **Against the simulated truth** (`tests/synthetic/check_truth.py`): 10 kb scores r = 0.98–0.998
-(points 2–5); 1 kb deep r = 0.96–0.99; per-nucleosome r = 0.89–0.95, with 3,118 of 3,127 dyads
-found within 20 bp; c½ r = 0.991.
+(points 2–5); 1 kb deep r = 0.96–0.99; per-nucleosome r = 0.89–0.95, with 3,109 dyads called, all
+within 20 bp of a true one (the 18 others lie in the duplicated segment, where MAPQ ≥ 10 leaves no
+reads; with `--park` 3,118 of 3,127 called dyads are within 20 bp); c½ r = 0.991.
 
 **Against GEO (real reads).** We re-ran GEO samples from their raw reads (hg38, NCBI no-alt
 analysis set):
@@ -67,10 +71,11 @@ analysis set):
   reads.
 - H1 spermine, replicate 2, nine points: r = 0.94–0.98, with no offset at any point.
 
-The remaining differences are in repeats, where reads map to several places. They are not caused
-by the bowtie2 version (2.3.5–2.5.5), the seed or the genome index: the 4DN hg38 index named in
-Park's scripts gives counts identical to NCBI's in every bin. `reads: {min_mapq: 10}` removes
-multi-mapping reads, at the cost of no longer matching GEO.
+These runs used Park's settings with ENA reads and the NCBI index. The remaining differences are in
+repeats, where reads map to several places: where bowtie2 places them depends on the reference, the
+read names and the base qualities. With Park's inputs (reads as `condense fetch` makes them, Park's
+references and bowtie2 2.4.x, as `--park` sets, and full-precision titrations) the H1 and E14 tables
+tested were reproduced byte for byte. The default MAPQ filter removes such reads.
 
 ## Resources
 
@@ -98,16 +103,20 @@ Given with `--settings FILE` (YAML), or in a config file.
 |---|---|---|
 | `threads` | 8 | bowtie2 threads per library |
 | `bin_sizes` | `[1000, 10000]` | |
-| `reads: {min_mapq: 0}` | no MAPQ filter, as Park | e.g. 10 drops multi-mapping reads |
+| `park` | `false` | `true`: Park's processing (`--park`); the keys below then take Park's values unless given |
+| `reads: {min_mapq: 10}` | MAPQ ≥ 10 (Park: 0, no filter) | |
 | `reads: {dedup: false}` | duplicates kept, as Park | |
 | `reads: {mm: 10}` | | maximum edit distance |
-| `score: {missing_as_nan: false}` | bins without input reads are dropped | `true` writes them as NA |
+| `score: {missing_as_nan: true}` | bins without input reads are NA rows (Park: dropped) | |
+| `fastq_check` | `lite` (Park: `park`) | `off`, `lite` (stop on SRA Lite), `park` (also read names) |
+| `bowtie2` | `bowtie2`: this environment's (Park: `2.4.1`) | a version (installed once under the refs folder) or a path |
+| `bdata` | `false` | `true`: also sliding-window areas of deep series |
 | `mscale` | `{Ca: 5}`, others 1 | molecule-number scale per agent |
 | `fit` | `{bin_size: 10000, min_tnum: 5, model: sigmoid, method: evolution, min_rsq: 0.5}` | c½ fit |
 | `trim_to` | 50 | reads are trimmed to 50 bp before alignment |
 | `qc` | `default` | `off`, `default`, `verbose` |
 | `qc_thresholds` | | overrides, e.g. `{min_replicate_rho: 0.7}`; the thresholds are listed in the report |
-| `chroms` | hg38/mm10-like: 1–N, X, Y; other genomes: every sequence ≥ 1% of the longest, except the mitochondrial | chromosomes to score |
+| `chroms` | hg38/mm10-like: 1–N, X, Y; other genomes: every sequence ≥ 1% of the longest, except the mitochondrial (Park: no chrY for GM and mCD8T) | chromosomes to score; e.g. without chrY for female cells |
 | `max_runtime` | 4320 | minutes; the longest time limit a retried step may ask for |
 
 ## Config files (several genomes, GEO names)
@@ -133,5 +142,5 @@ pytest tests/test_units.py
 bash tests/synthetic/run.sh /tmp/cc-test             # simulated experiment, ~2 min
 python tests/synthetic/check_truth.py /tmp/cc-test   # recovery of the simulated scores and c-half
 bash tests/synthetic/run_sheet.sh /tmp/cc-test       # same run from a sample sheet: identical tables
-bash tests/equivalence/run.sh /tmp/cc-test PARK_REPO PYTHON2   # identical to the original scripts
+bash tests/equivalence/run.sh /tmp/cc-park PARK_REPO PYTHON2   # --park run: identical to the original scripts
 ```
