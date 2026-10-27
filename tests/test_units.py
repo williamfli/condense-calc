@@ -277,7 +277,7 @@ def test_dry_run_does_not_fetch_genome(tmp_path, monkeypatch, capsys):
     from condense_calc import cli, reference
     sh = tmp_path / 'sheet.tsv'
     sh.write_text('series\tconc\tfraction\tfastq\n')
-    monkeypatch.setattr(cli, '_check', lambda src: None)
+    monkeypatch.setattr(cli, '_check', lambda *a, **k: None)
     monkeypatch.setattr(reference, 'missing', lambda g, r=None: 'download hg38 into X')
     monkeypatch.setattr(reference, 'ensure', lambda *a, **k: (_ for _ in ()).throw(AssertionError('fetched')))
     with pytest.raises(SystemExit) as e:
@@ -291,7 +291,7 @@ def test_genome_prepared_in_own_job(tmp_path, monkeypatch):
     sh.write_text('series\tconc\tfraction\tfastq\n')
     for k in ('SLURM_JOB_ID', 'CONDENSE_CONTROLLER'):
         monkeypatch.delenv(k, raising=False)
-    monkeypatch.setattr(cli, '_check', lambda src: None)
+    monkeypatch.setattr(cli, '_check', lambda *a, **k: None)
     monkeypatch.setattr(reference, 'missing', lambda g, r=None: 'download hg38 into X')
     ids = iter(['111', '222'])
     seen = []
@@ -490,3 +490,44 @@ def test_park_bowtie2_in_reference_job(tmp_path, monkeypatch):
     monkeypatch.setenv('CONDENSE_CONTROLLER', '1')
     with pytest.raises(SystemExit, match='First install 2.4.1'):
         cli.main(['run', str(sh), '-o', str(tmp_path / 'out'), '--slurm', '--park'])
+
+
+def _fq(path, names, qual='I' * 8, gz=False):
+    import gzip
+    text = ''.join(f'{n}\nACGTACGT\n+\n{qual}\n' for n in names)
+    (gzip.open(path, 'wt') if gz else open(path, 'w')).write(text)
+    return path
+
+
+def test_fastq_checks(tmp_path):
+    from condense_calc import fastq
+    inst = _fq(tmp_path / 'i_1.fastq.gz', ['@VL1:75:AAG:1:1101:1:1 1:N:0:ATTACTCG+AGGTTAGG'] * 3, gz=True)
+    bare = _fq(tmp_path / 'b_2.fastq', ['@SRR1.1 2', '@SRR1.2 2'])                      # '@<sn> <mate>': fine
+    ena = _fq(tmp_path / 'e_1.fastq.gz', ['@SRR31627121.1 VL1:75:AAG:1:1101:1:1/1'], gz=True)
+    two = _fq(tmp_path / 't_1.fastq', ['@VL1:75 1:N:0:A', '@VL1:76  1:N:0:A'])           # two spaces, read 2
+    lite = _fq(tmp_path / 'l_1.fastq.gz', ['@x 1:N:0:A'] * 4, qual='?' * 8, gz=True)
+    ok = lambda f, mate, mode: not fastq.check_file(f, mate, mode)['problems']
+    assert ok(inst, 1, 'park') and ok(bare, 2, 'park') and not ok(inst, 2, 'park')         # mate number checked
+    assert ok(ena, 1, 'lite') and not ok(ena, 1, 'park') and not ok(two, 1, 'park')
+    assert not ok(lite, 1, 'lite') and ok(lite, 1, 'off')
+    r = fastq.check_file(lite, 1, 'lite')
+    assert r['sra_lite'] and r['reads_checked'] == 4 and 'condense fetch' in r['problems'][0]
+    assert fastq.check([inst], [bare], 'off') == []
+    assert len(fastq.problems(fastq.check([ena], [bare], 'park'))) == 1
+    (tmp_path / 'n.fq').write_text('@a 1\nAC\n+\n??\n' * 2 + '@a 1\nAC\n+\nII\n')     # only n reads are read
+    assert fastq.check_file(tmp_path / 'n.fq', 1, 'lite', n=2)['sra_lite']
+
+
+def test_sheet_run_stops_on_sra_lite(tmp_path, monkeypatch):
+    from condense_calc import cli
+    for n in ['in', 'a']:
+        for m in (1, 2):
+            _fq(tmp_path / f'{n}_R{m}.fastq.gz', [f'@x {m}:N:0:A'] * 3, qual='?' * 8 if n == 'a' else 'I' * 8, gz=True)
+    (tmp_path / 's.tsv').write_text('series\tconc\tfraction\tfastq\nX\t0\t1\tin_R1.fastq.gz\nX\t0.5\t0.4\ta_R1.fastq.gz\n')
+    monkeypatch.setattr(cli.subprocess, 'run', lambda *a, **k: pytest.fail('submitted'))
+    with pytest.raises(SystemExit) as e:
+        cli.main(['run', str(tmp_path / 's.tsv'), '-o', str(tmp_path / 'out'), '--slurm'])
+    assert 'a_R1.fastq.gz' in str(e.value.code) and 'SRA Lite' in str(e.value.code)
+    (tmp_path / 'out/bam').mkdir()
+    (tmp_path / 'out/bam/X_1.bam').touch()               # already aligned: not checked again
+    cli._check(tmp_path / 's.tsv', 'lite', tmp_path / 'out')

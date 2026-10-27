@@ -19,6 +19,7 @@ DEFAULTS = {
     'mscale': {'Ca': 5},                # molecule-number scale per agent (others 1)
     'fit': {'bin_size': 10000, 'min_tnum': 5, 'model': 'sigmoid', 'method': 'evolution', 'min_rsq': 0.5},
     'bowtie2': 'bowtie2',               # 'bowtie2' (PATH: this environment's), a version (installed once), or a path
+    'fastq_check': 'lite',              # before alignment: stop on SRA Lite reads (fastq.py)
     'bdata': False,                     # deep series: also sliding-window areas (bindata_ver3.py); no table uses them
     'qc': 'default',
     'qc_thresholds': {},
@@ -28,6 +29,7 @@ PARK = {
     'reads': {'min_mapq': 0},         # Park's MAPQ filter is commented out (bincount_ver3.py:111-114)
     'score': {'missing_as_nan': False},   # NCPscore_ver4.py drops bins without input reads
     'bowtie2': '2.4.1',                 # the version in Park et al.'s Reporting Summary
+    'fastq_check': 'park',              # also stop on read names not in the form Park aligned
 }
 
 # Park mode: the reference Park et al. used in place of a preset (reference.py; mm10 is already theirs)
@@ -37,7 +39,7 @@ PARK_GENOMES = {'hg38': 'hg38_ucsc'}
 INPUTS = ('sheet', 'genome', 'genomes', 'nucleosomes', 'samples', 'titration_dir', 'cells', 'chroms', 'refs',
           'align_threads')
 BOOLS = ('park', 'bdata', 'reads.dedup', 'score.missing_as_nan')
-CHOICES = {'qc': ('off', 'default', 'verbose')}
+CHOICES = {'qc': ('off', 'default', 'verbose'), 'fastq_check': ('off', 'lite', 'park')}
 NAMED = ('mscale', 'qc_thresholds')     # dicts whose keys are names (agents, QC thresholds)
 
 

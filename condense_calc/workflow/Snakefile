@@ -150,10 +150,12 @@ if BT2_DIR and not Path(BT2_DIR, 'bowtie2').exists():
     raise ValueError(f"bowtie2 {SETTINGS['bowtie2']}: not in {BT2_DIR}; install it with "
                      f"`condense reference --bowtie2 {SETTINGS['bowtie2']}` (in a Slurm job)")
 BT2 = f'PATH={BT2_DIR}:$PATH bowtie2' if BT2_DIR else 'bowtie2'
+FASTQ_CHECK = SETTINGS['fastq_check']
 
 
 rule align:
-    # bowtie2 end-to-end, paired, reads trimmed to `trim_to` bases; then sorted and indexed
+    # FASTQ check (fastq.py: SRA Lite; Park mode: read names), then bowtie2 end-to-end, paired, reads trimmed
+    # to `trim_to` bases; then sorted and indexed
     input:
         r1=lambda w: [P(f) for f in SAMPLES.loc[w.name, 'fastq1'].split(',')],
         r2=lambda w: [P(f) for f in SAMPLES.loc[w.name, 'fastq2'].split(',')],
@@ -167,8 +169,10 @@ rule align:
     threads: THREADS
     # ~0.8 M pairs per minute with 8 threads; 6 GB
     resources: mem_mb=lambda w, attempt: 9000 * attempt, runtime=lambda w, attempt: rt(48 * 60, attempt)
-    log: bt2='logs/align/{name}.log', version='logs/align/{name}.bowtie2_version'
+    log: bt2='logs/align/{name}.log', version='logs/align/{name}.bowtie2_version',
+         fastq='logs/align/{name}.fastq_check.json'
     shell:
+        f'{CLI} check-fastq --mode {FASTQ_CHECK} -1 {{params.r1}} -2 {{params.r2}} -o {{log.fastq}} && '
         f'{BT2} --version > {{log.version}} && '
         f'{BT2} -p {{threads}} --trim-to {TRIM} -x {{params.index}} -1 {{params.r1}} -2 {{params.r2}} 2> {{log.bt2}} '
         '| samtools sort -@ 2 -m 1G -T bam/{wildcards.name}.tmp -o {output.bam} - && samtools index {output.bam}'

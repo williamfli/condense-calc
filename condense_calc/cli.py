@@ -18,7 +18,7 @@ from pathlib import Path
 import pysam
 import yaml
 
-from . import counts, fit, fragments, gtab, qc, reference, score, settings, sheet, titration
+from . import counts, fastq, fit, fragments, gtab, qc, reference, score, settings, sheet, titration
 
 PKG = Path(__file__).resolve().parent
 
@@ -155,9 +155,31 @@ def cmd_reference(args):
         print(f'bowtie2 {reference.bowtie2_version(d)}: {d}' if d else 'bowtie2: the one on PATH')
 
 
-def _check(src):
-    with tempfile.TemporaryDirectory() as tmp:
-        sheet.read_simple(src, 'check', workdir=tmp, note=lambda m: print(m, file=sys.stderr))
+def cmd_check_fastq(args):
+    res = fastq.check(args.r1.split(','), args.r2.split(','), args.mode)
+    if args.out:
+        Path(args.out).write_text(json.dumps({'mode': args.mode, 'files': res}, indent=1) + '\n')
+    if fastq.problems(res):
+        sys.exit('\n'.join(fastq.problems(res)))
+
+
+def _check(src, fastq_check='off', out=None):
+    """Check a sample sheet (or a config's samples), and the first reads of the FASTQ files of libraries not
+    yet aligned in out; raises SheetError. The align step checks the FASTQs again."""
+    if src.suffix in ('.yaml', '.yml'):
+        cfg = yaml.safe_load(src.read_text()) or {}
+        if 'samples' not in cfg:
+            return
+        libs = sheet.read_config_sheet(cfg['samples'], cfg.get('titration_dir', 'titration'),
+                                       lambda p: str((src.parent / Path(p).expanduser()).resolve()))
+    else:
+        with tempfile.TemporaryDirectory() as tmp:
+            libs = sheet.read_simple(src, 'check', workdir=tmp, note=lambda m: print(m, file=sys.stderr))
+    todo = [r for name, r in libs.iterrows() if not (out and (Path(out) / 'bam' / f'{name}.bam').exists())]
+    found = lambda fs: [f for f in fs.split(',') if Path(f).exists()]     # a missing one: Snakemake says so
+    probs = [p for r in todo for p in fastq.problems(fastq.check(found(r['fastq1']), found(r['fastq2']), fastq_check))]
+    if probs:
+        raise sheet.SheetError(f'FASTQ check (fastq_check: {fastq_check}):\n  ' + '\n  '.join(probs))
 
 
 def _user_settings(args, src):
@@ -180,7 +202,6 @@ def _workflow_config(args, out):
     src = Path(args.sheet).resolve()
     if src.suffix in ('.yaml', '.yml'):
         return src
-    _check(src)                                                      # fail early, before any job starts
     name, fasta, index = reference.ensure(args.genome, args.refs, _local_cores(args))
     cfg = _user_settings(args, src)
     cfg.update(sheet=str(src), genome=name, genomes={name: {'fasta': fasta, 'bowtie2_index': index}},
@@ -267,14 +288,13 @@ def cmd_run(args):
         print(f'Park mode: genome {args.genome} ({reference.PRESETS[args.genome]["name"]})', flush=True)
     out = Path(args.outdir).resolve() if args.outdir else src.parent / 'results'
     out.mkdir(parents=True, exist_ok=True)
+    try:
+        _check(src, S['fastq_check'], out)                          # fail early, before any job starts
+    except sheet.SheetError as e:
+        sys.exit(str(e))
     # --slurm submits a controller job, also from an interactive (salloc / Open OnDemand) session: run in
     # the foreground there, the workflow would die with the session
     if args.slurm and not args.dry_run and os.environ.get(CONTROLLER) != '1':
-        if is_sheet:
-            try:
-                _check(src)
-            except sheet.SheetError as e:
-                sys.exit(str(e))
         return _submit_controller(args, out, S)
     if not args.slurm and not args.dry_run and args.cores is None and _on_login_node():
         sys.exit('This looks like a cluster login node (sbatch is available, but this is not a Slurm job).\n'
@@ -282,11 +302,6 @@ def cmd_run(args):
                  'a job (salloc / sbatch). To run here anyway, give --cores N.')
     todo = _todo(args, S, is_sheet)
     if args.dry_run and todo:
-        if is_sheet:
-            try:
-                _check(src)
-            except sheet.SheetError as e:
-                sys.exit(str(e))
         print(f'{"Sample sheet OK. " if is_sheet else ""}Dry run stops here: the run would first '
               f'{" and ".join(todo)}.\nRun without -n to do that (with --slurm it runs as its own job).')
         sys.exit(0)
@@ -368,7 +383,7 @@ def cmd_qc_report(args):
 
 # stage option -> (settings section, key)
 STAGE_DEFAULTS = {'mm': ('reads', 'mm'), 'min_mapq': ('reads', 'min_mapq'), 'dedup': ('reads', 'dedup'),
-                  'missing_as_nan': ('score', 'missing_as_nan'),
+                  'missing_as_nan': ('score', 'missing_as_nan'), 'mode': ('fastq_check', None),
                   'model': ('fit', 'model'), 'method': ('fit', 'method'), 'min_rsq': ('fit', 'min_rsq')}
 
 
@@ -377,7 +392,7 @@ def _stage_defaults(args):
     S = settings.resolve(park=getattr(args, 'park', False))
     for dest, (sec, key) in STAGE_DEFAULTS.items():
         if getattr(args, dest, 0) is None:
-            setattr(args, dest, S[sec][key])
+            setattr(args, dest, S[sec] if key is None else S[sec][key])
 
 
 def main(argv=None):
@@ -516,6 +531,14 @@ def main(argv=None):
     park(s)
     s.add_argument('-o', '--out', required=True)
     s.set_defaults(func=cmd_fit)
+
+    s = sub.add_parser('check-fastq', help='check the first reads of FASTQ files before alignment (fastq.py)')
+    s.add_argument('-1', dest='r1', required=True, help='read-1 files, comma-separated')
+    s.add_argument('-2', dest='r2', required=True, help='read-2 files, comma-separated')
+    s.add_argument('--mode', choices=fastq.MODES, help=settings.describe('fastq_check'))
+    park(s)
+    s.add_argument('-o', '--out', help='JSON with what was seen in each file')
+    s.set_defaults(func=cmd_check_fastq)
 
     s = sub.add_parser('qc-sample', help='QC: alignment, read filters and fragment lengths of one BAM')
     s.add_argument('--bam', required=True)
