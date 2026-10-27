@@ -171,8 +171,11 @@ rule align:
         r1=lambda w, input: ','.join(input.r1),
         r2=lambda w, input: ','.join(input.r2),
     threads: THREADS
-    # ~0.8 M pairs per minute with 8 threads; 6 GB
-    resources: mem_mb=lambda w, attempt: 9000 * attempt, runtime=lambda w, attempt: rt(48 * 60, attempt)
+    # ~1.1 M pairs per minute with 8 threads (~52 bytes of gzipped FASTQ per pair); 6 GB. Time asked: 1 h plus 3x
+    # that rate, so short limits start sooner; a timed-out attempt is retried with twice the time
+    resources:
+        mem_mb=lambda w, attempt: 9000 * attempt,
+        runtime=lambda w, input, threads, attempt: rt(60 + 3 * mb(input.r1 + input.r2, 1, 0) / 52 / (0.14 * threads), attempt),
     log: bt2='logs/align/{name}.log', version='logs/align/{name}.bowtie2_version',
          fastq='logs/align/{name}.fastq_check.json'
     shell:
