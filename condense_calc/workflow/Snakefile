@@ -193,9 +193,10 @@ rule bincount:
     resources:
         mem_mb=lambda w, input, attempt: mb([input.bam], 0.6, 3000) * attempt,
         runtime=lambda w, input, attempt: rt(mb([input.bam], 0.02, 60), attempt),
+    log: 'logs/bincount/{name}_{kb}.log'      # e.g. fragments dropped because centred before position 0
     shell:
         f'{CLI} bincount --bam {{input.bam}} --fasta {{params.fasta}} --chroms {{params.chroms}} '
-        f'--win {{params.win}} {READ_OPTS} {PARK_OPT} -o {{output}}'
+        f'--win {{params.win}} {READ_OPTS} {PARK_OPT} -o {{output}} 2> {{log}}'
 
 rule score_bin:
     input:

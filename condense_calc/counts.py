@@ -30,9 +30,9 @@ def bincount(frags, chrom_sizes, chroms, win_size, gc=None, tlen=True, park=Fals
 
     As bincount_ver3.py with `-w win_size --gc --tlen` and no length filter (the GEO run):
     one count per fragment at its centre (dyad_bincount), bins [i*w, (i+1)*w).
-    A fragment centred before position 0 is dropped (reported on stderr); park=True adds it to the
-    chromosome's last bin, as the original's Python list indexing did. Neither happens with bowtie2
-    end-to-end alignments.
+    A fragment centred before position 0 is dropped and counted on stderr (the workflow's logs/bincount/);
+    park=True adds it to the chromosome's last bin, as the original's Python list indexing did. Neither
+    happens with bowtie2 end-to-end alignments.
     Returns rows [chrom, start, end, count, (GC), (mean |tlen|)].
     `gc` is {chrom: array of GC fractions per bin} from gc_content(), or None.
     """
