@@ -168,8 +168,9 @@ def _workflow_config(args, out):
     _check(src)                                                      # fail early, before any job starts
     name, fasta, index = reference.ensure(args.genome, args.refs, _local_cores(args))
     cfg = _user_settings(args, src)
-    cfg.update(sheet=str(src), genome=name, genomes={name: {'fasta': fasta, 'bowtie2_index': index}},
-               nucleosomes=args.nucleosomes)
+    cfg.update(sheet=str(src), genome=name, genomes={name: {'fasta': fasta, 'bowtie2_index': index}})
+    if args.nucleosomes:                                             # else keep the --settings file's value
+        cfg['nucleosomes'] = True
     path = out / 'condense.yaml'
     text = yaml.safe_dump(cfg, sort_keys=False)
     if not path.exists() or path.read_text() != text:

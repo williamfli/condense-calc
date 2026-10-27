@@ -320,3 +320,27 @@ def test_park_reaches_the_workflow(tmp_path, monkeypatch):
     # a config run gets --config park=true; a sheet run has park: true in condense.yaml
     cmd = _local_cmd(tmp_path, monkeypatch, ['--cores', '1', '--park'], {})
     assert cmd[cmd.index('--config') + 1:cmd.index('--config') + 2] == ['park=true']
+
+
+def _sheet_config(tmp_path, monkeypatch, extra, settings_text=None):
+    """condense.yaml as `condense SHEET` writes it (nothing is fetched or run)."""
+    import yaml
+    from condense_calc import cli, reference
+    sh = tmp_path / 'sheet.tsv'
+    sh.write_text('series\tconc\tfraction\tfastq\n')
+    if settings_text is not None:
+        (tmp_path / 'settings.yaml').write_text(settings_text)
+        extra = extra + ['--settings', str(tmp_path / 'settings.yaml')]
+    monkeypatch.setattr(cli, '_check', lambda *a, **k: None)
+    monkeypatch.setattr(reference, 'ensure', lambda g, *a, **k: (g, f'/refs/{g}/{g}.fa', f'/refs/{g}/{g}'))
+    monkeypatch.setattr(cli.subprocess, 'call', lambda cmd, **k: 0)
+    with pytest.raises(SystemExit):
+        cli.main(['run', str(sh), '-o', str(tmp_path / 'out'), '--cores', '1', *extra])
+    return yaml.safe_load((tmp_path / 'out' / 'condense.yaml').read_text())
+
+
+def test_settings_file_nucleosomes_kept(tmp_path, monkeypatch):
+    # nucleosomes: true in --settings was overwritten by the flag's default (False)
+    assert _sheet_config(tmp_path, monkeypatch, [], 'nucleosomes: true\n')['nucleosomes'] is True
+    assert 'nucleosomes' not in _sheet_config(tmp_path, monkeypatch, [], 'threads: 2\n')
+    assert _sheet_config(tmp_path, monkeypatch, ['--nucleosomes'])['nucleosomes'] is True
