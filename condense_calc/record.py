@@ -1,8 +1,8 @@
 """The run record, run_info.json in the output folder: what made the tables.
 
 Mode, effective settings, condense-calc version and commit, bowtie2 version, references (with their
-fingerprints, reference.py), chromosomes per cell, and per library the bowtie2 version line and the FASTQ check
-(logs/align/). In Park mode, park_warnings() lists what keeps the tables from being Park's.
+fingerprints, reference.py), chromosomes per cell, and per library the bowtie2 version (line and number) and the
+FASTQ check (logs/align/). In Park mode, park_warnings() lists what keeps the tables from being Park's.
 """
 import json
 import shutil
@@ -59,8 +59,9 @@ def write(path, settings, genomes, bt2_dir, chroms, names, logs='logs/align'):
         bt2_version = None
     libs = {}
     for n in names:
-        check = Path(logs) / f'{n}.fastq_check.json'
-        libs[n] = {'bowtie2': _first_line(Path(logs) / f'{n}.bowtie2_version'),
+        check, version = Path(logs) / f'{n}.fastq_check.json', Path(logs) / f'{n}.bowtie2_version'
+        libs[n] = {'bowtie2': _first_line(version),
+                   'bowtie2_version': reference.parse_version(version.read_text()) if version.exists() else None,
                    'fastq_check': json.loads(check.read_text()) if check.exists() else None}
     rec = {'mode': 'park' if settings['park'] else 'default',
            'condense_calc': code_version(),

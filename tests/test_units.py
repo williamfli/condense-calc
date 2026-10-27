@@ -609,6 +609,10 @@ def test_run_record(tmp_path, monkeypatch):
     logs.mkdir()
     (logs / 'A_0.bowtie2_version').write_text('/x/bowtie2-align-s version 2.5.5\n64-bit\n')
     (logs / 'A_0.fastq_check.json').write_text('{"mode": "park", "files": []}')
+    env = tmp_path / 'envs/bowtie2-2.4.1'                    # bioconda 2.4.1 prints no version; conda-meta has it
+    (env / 'conda-meta').mkdir(parents=True)
+    (env / 'conda-meta/bowtie2-2.4.1-py38h1c8e9b9_3.json').write_text('{"version": "2.4.1"}')
+    (logs / 'A_1.bowtie2_version').write_text(f'{env}/bin/bowtie2-align-s version \n64-bit\n')
     monkeypatch.setattr(reference, 'bowtie2_version', lambda d=None: '2.5.5')
     S = settings.resolve({'park': True, 'bowtie2': 'bowtie2'})
     record.write(tmp_path / 'run_info.json', S, genomes, None, {'A': ['chr1']}, ['A_0', 'A_1'], logs=logs)
@@ -617,6 +621,7 @@ def test_run_record(tmp_path, monkeypatch):
     assert r['references']['g'] == {**genomes['g'], 'sequences': 1, 'preset': None,
                                     'fingerprint': reference.fingerprint(tmp_path / 'g.fa.fai')}
     assert r['libraries']['A_0']['bowtie2'].endswith('2.5.5') and r['libraries']['A_1']['fastq_check'] is None
+    assert [r['libraries'][n]['bowtie2_version'] for n in ('A_0', 'A_1')] == ['2.5.5', '2.4.1']
     assert len(r['warnings']) == 1 and 'not a reference Park et al. used' in r['warnings'][0]
     assert record.park_warnings(settings.resolve({}), genomes) == []
     assert record.code_version().startswith('0.')

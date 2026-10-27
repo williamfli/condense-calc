@@ -117,18 +117,27 @@ def missing_bowtie2(spec, refs=None):
     raise SystemExit(f'bowtie2: no bowtie2 in {d} (settings bowtie2: {spec})')
 
 
+def _conda_version(bin_dir):
+    meta = sorted(Path(bin_dir).parent.glob('conda-meta/bowtie2-[0-9]*.json'))
+    return json.loads(meta[-1].read_text())['version'] if meta else None
+
+
+def parse_version(text):
+    """Version in the output of `bowtie2 --version` ('<folder>/bowtie2-align-s version 2.5.5'). Some conda builds
+    print none (bioconda 2.4.1: '<folder>/bowtie2-align-s version '); then the conda-meta record of the
+    environment of <folder> says it."""
+    m = re.match(r'(\S+) version[ \t]*(\S*)', text)
+    if not m:
+        return None
+    return m.group(2) or _conda_version(Path(m.group(1)).parent)
+
+
 def bowtie2_version(folder=None):
     """Version of the bowtie2 in folder (None: on PATH). Its wrapper is a Perl script, so the folder goes first on
-    PATH, as the align step does. Some conda builds print no version (bioconda 2.4.1: 'bowtie2-align-s version ');
-    then the environment's conda-meta record says it."""
+    PATH, as the align step does."""
     env = dict(os.environ, PATH=f'{folder}{os.pathsep}{os.environ.get("PATH", "")}') if folder else None
     out = subprocess.run(['bowtie2', '--version'], env=env, capture_output=True, text=True, check=True).stdout
-    m = re.match(r'\S+ version (\S+)', out)
-    if m:
-        return m.group(1)
-    where = Path(folder) if folder else Path(shutil.which('bowtie2') or '.').parent
-    meta = sorted(where.parent.glob('conda-meta/bowtie2-[0-9]*.json'))
-    return json.loads(meta[-1].read_text())['version'] if meta else None
+    return parse_version(out) or _conda_version(Path(folder) if folder else Path(shutil.which('bowtie2') or '.').parent)
 
 
 def ensure_bowtie2(spec, refs=None):
