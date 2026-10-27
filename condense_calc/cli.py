@@ -467,7 +467,8 @@ def main(argv=None):
     s.add_argument('--qc', choices=['off', 'default', 'verbose'], help='QC level (default: default)')
     s.add_argument('--settings', help='YAML file with further settings (see README)')
     s.add_argument('--park', action='store_true',
-                   help='reproduce the GEO tables of Park et al. 2025: their processing (settings `park: true`)')
+                   help='reproduce the GEO tables of Park et al. 2025: their processing (settings `park: true`). '
+                        'Name series as on GEO (GM_..., mCD8T_...): Park mode scores GM and mCD8T without chrY')
     s.add_argument('--cores', type=int,
                    help='local run: cores to use (default: the CPUs this process may use, e.g. a job\'s allocation)')
     s.add_argument('--slurm', action='store_true', help='submit each step as a Slurm job')

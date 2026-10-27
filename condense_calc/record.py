@@ -52,7 +52,7 @@ def _first_line(path):
     return Path(path).read_text().splitlines()[0].strip() if Path(path).exists() else None
 
 
-def write(path, settings, genomes, bt2_dir, chroms, names, logs='logs/align'):
+def write(path, settings, genomes, bt2_dir, chroms, names, logs='logs/align', warnings=()):
     try:
         bt2_version = reference.bowtie2_version(bt2_dir)
     except (OSError, subprocess.CalledProcessError):
@@ -71,5 +71,5 @@ def write(path, settings, genomes, bt2_dir, chroms, names, logs='logs/align'):
            'references': {g: genome_info(v['fasta'], v['bowtie2_index']) for g, v in genomes.items()},
            'chroms': chroms,
            'libraries': libs,
-           'warnings': park_warnings(settings, genomes)}
+           'warnings': park_warnings(settings, genomes) + list(warnings)}
     Path(path).write_text(json.dumps(rec, indent=1) + '\n')

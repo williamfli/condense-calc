@@ -603,6 +603,15 @@ def test_park_chry_rule():
         assert settings.park_chroms(label, hs) == hs[:-1], label
     for label in ('H1', 'E14_NCP_sp', 'GMX', 'H1_GM'):
         assert settings.park_chroms(label, hs) == hs, label
+    # a cell's chromosomes: explicit chroms always win; Park mode drops chrY for GM by default only
+    default = lambda: hs
+    assert settings.cell_chroms('GM', None, default) == (hs, None)
+    assert settings.cell_chroms('GM', None, default, park=True) == (hs[:-1], None)
+    assert settings.cell_chroms('GM', hs, default, park=True) == (hs, None)
+    assert settings.cell_chroms('H1', None, default, park=True) == (hs, None)
+    chroms, warning = settings.cell_chroms('GM12878_NCP_sp', None, default, park=True)     # not Park's cell name
+    assert chroms == hs and 'GM12878_NCP_sp keeps chrY' in warning
+    assert settings.cell_chroms('GM12878_NCP_sp', None, default) == (hs, None)
 
 
 def test_run_record(tmp_path, monkeypatch):

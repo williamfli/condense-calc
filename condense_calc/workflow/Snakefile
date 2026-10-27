@@ -61,12 +61,11 @@ if 'sheet' in config:       # sample sheet (condense init); one genome; each ser
 else:                       # GEO-style config: samples + titration_dir + cells
     CELLS = {c: ({'genome': v} if isinstance(v, str) else dict(v)) for c, v in config['cells'].items()}
     SAMPLES = sheet.read_config_sheet(config['samples'], config.get('titration_dir', 'titration'), P)
-for c, v in CELLS.items():
-    if not v.get('chroms'):     # an explicit list always wins
-        v['chroms'] = default_chroms(GENOMES[v['genome']]['fasta'])
-        if SETTINGS['park']:    # Park's driver: GM and mCD8T without chrY
-            v['chroms'] = settings.park_chroms(c, v['chroms'])
-    v['chroms'] = list(v['chroms'])
+CHRY_WARNINGS = []      # Park mode: cells named like GM or mCD8T that keep chrY
+for c, v in CELLS.items():  # an explicit chroms always wins; Park mode: GM and mCD8T without chrY
+    v['chroms'], w = settings.cell_chroms(c, v.get('chroms'), lambda: default_chroms(GENOMES[v['genome']]['fasta']),
+                                          SETTINGS['park'])
+    CHRY_WARNINGS += [w] if w else []
 for c in sorted(set(SAMPLES['cell']) - set(CELLS)):
     raise ValueError(f'cell {c!r} is in the sample sheet but not under cells: in the config')
 S = SAMPLES.reset_index()
@@ -305,7 +304,7 @@ rule fit:
 USED_GENOMES = {g: GENOMES[g] for g in sorted({v['genome'] for v in CELLS.values()})}
 
 onstart:
-    for w in record.park_warnings(SETTINGS, USED_GENOMES):
+    for w in record.park_warnings(SETTINGS, USED_GENOMES) + CHRY_WARNINGS:
         print(f'WARNING: {w}', file=sys.stderr)
 
 localrules: run_info
@@ -317,7 +316,7 @@ rule run_info:
     params: settings=SETTINGS
     run:
         record.write(output[0], SETTINGS, USED_GENOMES, BT2_DIR, {c: v['chroms'] for c, v in CELLS.items()},
-                     list(SAMPLES.index))
+                     list(SAMPLES.index), warnings=CHRY_WARNINGS)
 
 # ---------------------------------------------------------------- quality control
 VERBOSE = '--verbose' if QC == 'verbose' else ''

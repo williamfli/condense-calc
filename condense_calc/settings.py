@@ -51,6 +51,21 @@ def park_chroms(label, chroms):
     return list(chroms)
 
 
+def cell_chroms(label, given, default, park=False):
+    """Chromosomes of a cell (config) or series (sample sheet): `chroms` if given, which always wins; else
+    default(), the genome's; in Park mode without chrY for GM and mCD8T (park_chroms). Returns (chroms, warning):
+    in Park mode a warning if a cell keeps chrY by default although its name suggests GM or mCD8T, because
+    park_chroms goes by the first part of the name only (GM12878_NCP_sp keeps chrY)."""
+    if given:
+        return list(given), None
+    chroms = park_chroms(label, default()) if park else list(default())
+    if park and re.search(r'GM|CD8', label) and any(c in ('chrY', 'Y') for c in chroms):
+        return chroms, (f"Park mode: {label} keeps chrY. Park et al. scored GM and mCD8T without it, and Park mode "
+                        f"knows them by the first part of the name (GM_..., mCD8T_...); if {label} is one of them, "
+                        "give chroms without chrY")
+    return chroms, None
+
+
 # keys that say what to run, not how: written by `condense` or given in a config file
 INPUTS = ('sheet', 'genome', 'genomes', 'nucleosomes', 'samples', 'titration_dir', 'cells', 'chroms', 'refs',
           'align_threads')
