@@ -163,15 +163,18 @@ def cmd_reference(args):
     if not args.genomes and not args.bowtie2:
         sys.exit('nothing to do: name a genome, or give --bowtie2 VERSION')
     build = [g for g in args.genomes if reference.builds_index(g, args.refs)]
+    refs = ['--refs', args.refs] if args.refs else []
     if build and _on_login_node():
+        cmd = ['condense', 'reference', *args.genomes, *(['--bowtie2', args.bowtie2] if args.bowtie2 else []),
+               '--threads', '8', *refs]
         sys.exit(f'Building a bowtie2 index ({", ".join(build)}) takes hours: not light work for a login node. '
-                 f"Run it in a job, e.g. sbatch -c 8 --mem 32G -t 0-12:00 --wrap 'condense reference "
-                 f"{' '.join(args.genomes)} --threads 8'")
+                 f'Run it in a job, e.g. sbatch -c 8 --mem 32G -t 0-12:00 --wrap {shlex.quote(shlex.join(cmd))}')
     for g in args.genomes:
         print('\t'.join(reference.ensure(g, args.refs, args.threads)))
     if args.bowtie2 and reference.missing_bowtie2(args.bowtie2, args.refs) and _on_login_node():
         sys.exit(f'Installing bowtie2 {args.bowtie2} (conda) is not light work for a login node; run it in a job, '
-                 f"e.g. sbatch -c 1 --mem 8G -t 1:00:00 --wrap 'condense reference --bowtie2 {args.bowtie2}', "
+                 f"e.g. sbatch -c 1 --mem 8G -t 1:00:00 --wrap "
+                 f"{shlex.quote(shlex.join(['condense', 'reference', '--bowtie2', args.bowtie2, *refs]))}, "
                  'or let condense ... --slurm do it.')
     if args.bowtie2:
         d = reference.ensure_bowtie2(args.bowtie2, args.refs)
@@ -186,9 +189,10 @@ def cmd_check_fastq(args):
         sys.exit('\n'.join(fastq.problems(res)))
 
 
-def _check(src, fastq_check='off', out=None):
+def _check(src, fastq_check='off', out=None, park=False):
     """Check a sample sheet (or a config's samples), and the first reads of the FASTQ files of libraries not
-    yet aligned in out; raises SheetError. The align step checks the FASTQs again."""
+    yet aligned in out; raises SheetError. The align step checks the FASTQs again. park: also note soluble
+    fractions that look rounded (they matter for GEO byte identity only)."""
     if src.suffix in ('.yaml', '.yml'):
         cfg = yaml.safe_load(src.read_text()) or {}
         if 'samples' not in cfg:
@@ -201,7 +205,8 @@ def _check(src, fastq_check='off', out=None):
             raise sheet.SheetError(f"{src}: samples {cfg['samples']}: {what}") from None
     else:
         with tempfile.TemporaryDirectory() as tmp:
-            libs = sheet.read_simple(src, 'check', workdir=tmp, note=lambda m: print(m, file=sys.stderr))
+            libs = sheet.read_simple(src, 'check', workdir=tmp,
+                                     note=(lambda m: print(m, file=sys.stderr)) if park else None)
     todo = [r for name, r in libs.iterrows() if not (out and (Path(out) / 'bam' / f'{name}.bam').exists())]
     found = lambda fs: [f for f in fs.split(',') if Path(f).exists()]     # a missing one: Snakemake says so
     probs = [p for r in todo for p in fastq.problems(fastq.check(found(r['fastq1']), found(r['fastq2']), fastq_check))]
@@ -322,7 +327,7 @@ def cmd_run(args):
     out = Path(args.outdir).resolve() if args.outdir else src.parent / 'results'
     out.mkdir(parents=True, exist_ok=True)
     try:
-        _check(src, S['fastq_check'], out)                          # fail early, before any job starts
+        _check(src, S['fastq_check'], out, S['park'])               # fail early, before any job starts
     except sheet.SheetError as e:
         sys.exit(str(e))
     # --slurm submits a controller job, also from an interactive (salloc / Open OnDemand) session: run in
@@ -465,7 +470,7 @@ def main(argv=None):
     s.add_argument('--nucleosomes', action='store_true',
                    help='also score every nucleosome (for deeply sequenced series; slower)')
     s.add_argument('--qc', choices=['off', 'default', 'verbose'], help='QC level (default: default)')
-    s.add_argument('--settings', help='YAML file with further settings (see README)')
+    s.add_argument('--settings', help='YAML file with further settings (docs/details.md, "All settings")')
     s.add_argument('--park', action='store_true',
                    help='reproduce the GEO tables of Park et al. 2025: their processing (settings `park: true`). '
                         'Name series as on GEO (GM_..., mCD8T_...): Park mode scores GM and mCD8T without chrY')

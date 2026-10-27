@@ -3,7 +3,7 @@
 From NCBI's SRA Normalized data (real base qualities; ENA serves some GSE252941 runs as SRA Lite), with the
 instrument's read names '@<spot name> <mate>:N:0:<index>' (bowtie2 places multi-mapping reads by name). These
 pass `fastq_check: park`: `condense fetch SRR... -o reads/`, then `condense samples.tsv --park` with the
-titration at full precision, reproduces Park's GEO tables.
+titration at full precision, gives the numbers of Park's GEO tables (GEO's file and column names: docs/park.md).
 Per run: prefetch (--verify yes; up to 4 tries, waiting 2, 4, 6 min), fasterq-dump, a check that both mates
 hold the run's spot count and real qualities, gzip (pigz if installed), then the .sra and temporary files are
 deleted. Writes OUT/<run>_1.fastq.gz and _2.fastq.gz; a run whose two files exist (and pass the check) is

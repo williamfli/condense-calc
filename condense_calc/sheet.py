@@ -60,7 +60,8 @@ def read_simple(path, cell, nucleosomes=False, workdir='.', note=None):
     df.columns = [c.strip().lower() for c in df.columns]
     for col in ('fastq', 'conc'):
         if col not in df.columns:
-            raise SheetError(f'{path}: needs a column {col!r} (columns: series, conc, fraction, fastq)')
+            raise SheetError(f'{path}: needs a column {col!r}; found {list(df.columns)}. '
+                             'Separate the columns with tabs (columns: series, conc, fraction, fastq)')
     if 'series' not in df.columns:
         df['series'] = path.stem
     has_rep = 'rep' in df.columns and (df['rep'] != '').any()
