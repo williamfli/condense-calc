@@ -29,7 +29,7 @@ NAME_RE = re.compile(r'_(\d+)_(\d+)rep(_deep)?$')
 
 THRESHOLDS = {
     'min_alignment_rate': (0.80, 'bowtie2 overall alignment rate'),
-    'min_used_fraction': (0.50, 'share of read pairs kept as fragments (proper pair, edit distance)'),
+    'min_used_fraction': (0.50, 'share of read pairs kept as fragments (proper pair, edit distance, MAPQ >= min_mapq)'),
     'max_lowmapq_fraction': (0.15, 'share of fragments with MAPQ < 10 (multi-mapping), before the MAPQ filter'),
     'min_mono_fraction': (0.50, f'share of fragments {MONO[0]}-{MONO[1]} bp'),
     'min_tlen_mode': (130, 'fragment-length mode, lower bound'),
