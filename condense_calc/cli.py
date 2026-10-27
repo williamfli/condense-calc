@@ -306,9 +306,12 @@ def cmd_run(args):
         sys.exit(f'{args.sheet} not found')
     is_sheet = src.suffix not in ('.yaml', '.yml')
     try:
-        S = settings.resolve(_user_settings(args, src))             # unknown keys: stop before anything starts
+        user = _user_settings(args, src)
+        S = settings.resolve(user)                                  # unknown keys: stop before anything starts
     except (settings.SettingsError, OSError, yaml.YAMLError) as e:
         sys.exit(f'settings: {e}')
+    if not is_sheet and not args.refs and user.get('refs'):          # a config's own refs, as the workflow reads it
+        args.refs = str((src.parent / Path(str(user['refs'])).expanduser()).resolve())
     if S['park'] and is_sheet and args.genome in settings.PARK_GENOMES:
         args.genome = settings.PARK_GENOMES[args.genome]
         print(f'Park mode: genome {args.genome} ({reference.PRESETS[args.genome]["name"]})', flush=True)

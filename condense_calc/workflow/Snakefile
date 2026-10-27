@@ -150,7 +150,7 @@ def mb(path_list, factor, base):
 # ---------------------------------------------------------------- alignment
 # bowtie2: this environment's (PATH), or the folder of settings `bowtie2` (a version: a conda env under the
 # refs folder, installed by `condense reference --bowtie2 VERSION`). Only bowtie2 runs from there.
-BT2_DIR = reference.bowtie2_dir(SETTINGS['bowtie2'], config.get('refs'))
+BT2_DIR = reference.bowtie2_dir(SETTINGS['bowtie2'], P(config['refs']) if config.get('refs') else None)
 if BT2_DIR and not Path(BT2_DIR, 'bowtie2').exists():
     raise ValueError(f"bowtie2 {SETTINGS['bowtie2']}: not in {BT2_DIR}; install it with "
                      f"`condense reference --bowtie2 {SETTINGS['bowtie2']}` (in a Slurm job)")

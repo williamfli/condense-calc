@@ -374,6 +374,20 @@ def test_park_reaches_the_workflow(tmp_path, monkeypatch):
     assert cmd[cmd.index('--config') + 1:cmd.index('--config') + 2] == ['park=true']
 
 
+def test_config_refs_used_for_bowtie2(tmp_path, monkeypatch):
+    # a config's own `refs:` (relative to the config file) is where the CLI looks for bowtie2, as the workflow does
+    from condense_calc import cli, reference
+    cfg = tmp_path / 'config.yaml'
+    cfg.write_text('park: true\nrefs: myrefs\n')
+    seen = []
+    monkeypatch.setattr(reference, 'missing_bowtie2', lambda s, r=None: seen.append(r))
+    monkeypatch.setattr(reference, 'ensure_bowtie2', lambda s, r=None: seen.append(r))
+    monkeypatch.setattr(cli.subprocess, 'call', lambda cmd, **k: seen.append(cmd) or 0)
+    with pytest.raises(SystemExit):
+        cli.main(['run', str(cfg), '-o', str(tmp_path / 'out'), '--cores', '1'])
+    assert seen[:-1] == [str(tmp_path / 'myrefs')] * (len(seen) - 1) and f'refs={tmp_path}/myrefs' in seen[-1]
+
+
 def _sheet_config(tmp_path, monkeypatch, extra, settings_text=None):
     """condense.yaml as `condense SHEET` writes it (nothing is fetched or run)."""
     import yaml
