@@ -608,6 +608,8 @@ def test_fetch_commands(tmp_path, monkeypatch):
                     [f'@VL1:1:F:1:1:1:{i} {m}:N:0:ACGT' for i in range(3)])
             return R(0, f'spots read      : {spots["n"]}\nreads read      : 6\n')
         f = Path(cmd[-1])                                               # pigz
+        if Path(f'{f}.gz').exists():                                    # as pigz and gzip: no overwriting
+            raise fetch.subprocess.CalledProcessError(25, cmd)
         gzip.open(f'{f}.gz', 'wb').write(f.read_bytes())
         f.unlink()
         return R()
@@ -625,6 +627,10 @@ def test_fetch_commands(tmp_path, monkeypatch):
     assert calls[3] == ['/sw/bin/pigz', '-p', '4', str(tmp_path / 'tmp_SRR1/SRR1_1.fastq')]
     assert not (tmp_path / 'tmp_SRR1').exists()                          # .sra and temporary files deleted
     assert fetch.fetch('SRR1', tmp_path) == out and len(calls) == 5      # already there: nothing run
+    # a job stopped while compressing left tmp_SRR3/SRR3_1.fastq.gz: the next fetch replaces it
+    (tmp_path / 'tmp_SRR3').mkdir()
+    (tmp_path / 'tmp_SRR3/SRR3_1.fastq.gz').write_bytes(b'partial')
+    assert all(p.exists() for p in fetch.fetch('SRR3', tmp_path))
     spots['n'] = 4                                                      # fewer reads than the run's spots
     with pytest.raises(fetch.FetchError, match=r'\[3, 3\] reads .* 4 spots'):
         fetch.fetch('SRR2', tmp_path)

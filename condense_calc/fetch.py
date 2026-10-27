@@ -75,6 +75,7 @@ def fetch(run, out, threads=1, sleep=time.sleep):
         raise FetchError('\n'.join(probs))
     gz = [_tool('pigz'), '-p', str(threads)] if shutil.which('pigz') else ['gzip']
     for f, dst in zip(fqs, final):
+        Path(f'{f}.gz').unlink(missing_ok=True)      # left by a job stopped while compressing; gzip would refuse
         subprocess.run(gz + [str(f)], check=True)
         Path(f'{f}.gz').rename(dst)
     shutil.rmtree(tmp)
