@@ -3,7 +3,8 @@
     python tests/equivalence/compare.py OUT      (OUT = the folder given to tests/synthetic/run.sh)
 
 For every file pair: same header? same rows (keys) in the same order? how many value cells are
-identical as text, and the largest numeric difference. Writes OUT/equiv/comparison.tsv.
+identical as text, and the largest numeric difference. Writes OUT/equiv/comparison.tsv; exits 1
+unless every file is identical.
 """
 import math
 import sys
@@ -91,3 +92,7 @@ for stage, rs in summary.items():
     miss = len(rs) - len(ok)
     print(f'{stage:22s} {len(rs):5d}  {rows_ok:5d}/{len(ok):<5d}    {same:>10d}/{cells:<10d}  {md:.3g}'
           + (f'   ({miss} missing)' if miss else ''))
+identical = all(r and r['header'] and r['same_rows'] and r['identical_text'] == r['cells']
+                for rs in summary.values() for r in rs)
+print('ALL IDENTICAL' if identical else 'DIFFERENCES (see equiv/comparison.tsv)')
+sys.exit(0 if identical else 1)

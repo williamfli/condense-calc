@@ -58,7 +58,7 @@ for col in ncp.columns[2:]:
         left, right = tr.dyad.to_numpy()[idx - 1], tr.dyad.to_numpy()[idx]
         near = np.where(np.abs(g.Position - left) <= np.abs(g.Position - right), idx - 1, idx)
         d = np.abs(tr.dyad.to_numpy()[near] - g.Position.to_numpy())
-        m = d <= 20
+        m = (d <= 20) & np.isfinite(g[col].to_numpy(dtype=float))       # NA: a dyad without input coverage
         true = -np.log(p_of(conc, tr.chalf.to_numpy()[near], tr.rate.to_numpy()[near]))
         rs.append(pd.DataFrame({'meas': g[col].to_numpy(dtype=float)[m], 'true': true[m]}))
         called = max(called, m.sum())

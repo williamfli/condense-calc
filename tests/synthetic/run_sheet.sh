@@ -1,19 +1,19 @@
 #!/bin/bash
 # The same simulated experiment through a sample sheet (`condense SHEET`), compared with the
 # config run of tests/synthetic/run.sh: every table must hold the same values (only names differ).
-# Run from the repo root, in the condense-calc env, after run.sh OUTDIR:
-#   bash tests/synthetic/run_sheet.sh OUTDIR
+# Run from the repo root, in the condense-calc env, after run.sh OUTDIR [--park]:
+#   bash tests/synthetic/run_sheet.sh OUTDIR [--park]       (the same mode as that run)
 set -euo pipefail
-OUT=$(realpath "$1")
+OUT=$(realpath "$1"); shift
 IN=$OUT/input
 # sheet from the simulation's sample sheet and titration table: series SIM (shallow) and SIM_deep
 awk -F'\t' 'NR==FNR { if (FNR > 1) { conc[$1] = $2; frac[$1] = $3 }; next }
             FNR == 1 { print "series\tpoint\tconc\tfraction\tfastq"; next }
             { s = ($6 == "deep") ? "SIM_deep" : "SIM"; print s "\t" $4 "\t" conc[$4] "\t" frac[$4] "\t" $7 }' \
   "$IN/titration/SIM_NCP_sp.tsv" "$IN/samples.tsv" > "$IN/sheet.tsv"
-echo 'threads: 2' > "$IN/settings.yaml"
+printf 'threads: 2\nbowtie2: bowtie2\n' > "$IN/settings.yaml"
 python -m condense_calc "$IN/sheet.tsv" -o "$OUT/run_sheet" --genome "$IN/ref/sim.fa" --nucleosomes \
-  --settings "$IN/settings.yaml" --cores "${SLURM_CPUS_PER_TASK:-2}" --quiet
+  --settings "$IN/settings.yaml" --cores "${SLURM_CPUS_PER_TASK:-2}" --quiet "$@"
 python - "$OUT" <<'PY'
 import gzip, sys
 from pathlib import Path
