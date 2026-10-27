@@ -60,7 +60,7 @@ def cmd_coverage(args):
 def cmd_peaks(args):
     frags = _read(args, [args.chrom])
     f = frags.get(args.chrom)
-    pk = counts.peaks(f, fast=args.fast) if f is not None else {}
+    pk = counts.peaks(f, park=args.park) if f is not None else {}
     rows = [[args.chrom, p, pk[p]] for p in sorted(pk)]
     gtab.write(args.out, ['Chromosome', 'Position', args.label or label_of(args.bam)], rows)
 
@@ -431,7 +431,6 @@ def main(argv=None):
     s = sub.add_parser('peaks', help='nucleosome dyads of one chromosome (NCPpeak_ver3.py)')
     reads(s)
     s.add_argument('--chrom', required=True)
-    s.add_argument('--fast', action='store_true', help='break score ties by position (not the original order)')
     s.add_argument('-o', '--out', required=True)
     s.set_defaults(func=cmd_peaks)
 

@@ -41,7 +41,15 @@ def test_peaks_greedy():
     rows = [[1000 - 73, 1000, 147]] * 3 + [[1050 - 73, 1050, 147]] * 2 + [[1200 - 73, 1200, 147]]
     pk = counts.peaks(F(rows))
     assert pk == {1000: 3.0, 1200: 1.0}
-    assert counts.peaks(F(rows), fast=True) == pk
+    assert counts.peaks(F(rows), park=True) == pk
+
+
+def test_peak_ties():
+    # dyads 1000 and 1050 tie (2 reads each) and are 50 bp apart, so only one is kept: by default the
+    # lower position; Park mode keeps the one Python 2's sort put first (here the higher one)
+    rows = [[1000 - 73, 1000, 147]] * 2 + [[1050 - 73, 1050, 147]] * 2
+    assert counts.peaks(F(rows)) == {1000: 2.0}
+    assert counts.peaks(F(rows), park=True) == {1050: 2.0}
 
 
 def test_ncpcov_and_bindata():

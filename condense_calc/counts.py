@@ -103,14 +103,15 @@ def _tuple_cmp(a, b):
 
 
 def peaks(frags, min_len=PEAK_MIN_LEN, max_len=PEAK_MAX_LEN, ncp_len=PEAK_NCP_LEN,
-          overlap=PEAK_OVERLAP, fast=False):
+          overlap=PEAK_OVERLAP, park=False):
     """Nucleosome dyads of one chromosome, as NCPpeak_ver3.py selects them.
 
     Dyad scores: mono-nucleosome fragments (126-184 bp by default), weight 1 at the centre
     (0.5/0.5 for even lengths). Positions are visited from the highest score down and kept
     unless a kept dyad lies closer than ncp_len - overlap (107 bp). No smoothing.
-    fast=True breaks ties by position instead of reproducing Python 2's order (faster, but
-    can pick different dyads among equal scores).
+    Equal scores are visited from the lowest position up. park=True instead reproduces the
+    order Python 2 gave them in the original, which follows from its sort's internals over the
+    whole chromosome (a comparator that never returns 0) rather than from a rule.
     Returns {position: score}.
     """
     f = frags.select(min_len, max_len)
@@ -122,12 +123,12 @@ def peaks(frags, min_len=PEAK_MIN_LEN, max_len=PEAK_MAX_LEN, ncp_len=PEAK_NCP_LE
     # Python 2 kept a position's score an int until a 0.5 was added; the text output shows it
     is_float = np.bincount(inv, weights=(w != 1)) > 0
     value = {int(p): (float(s) if fl else int(s)) for p, s, fl in zip(upos, score, is_float)}
-    if fast:
-        order = np.lexsort((upos, -score))
-        cand = [(float(score[i]), int(upos[i])) for i in order]
-    else:
+    if park:
         temp = [[float(s), int(p)] for s, p in zip(score, upos)]   # position order, as the original
         cand = sorted(temp, key=functools.cmp_to_key(_tuple_cmp), reverse=True)
+    else:
+        order = np.lexsort((upos, -score))
+        cand = [(float(score[i]), int(upos[i])) for i in order]
     min_gap = ncp_len - overlap
     kept = SortedList()
     out = {}

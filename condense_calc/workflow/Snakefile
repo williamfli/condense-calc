@@ -36,6 +36,7 @@ READS = SETTINGS['reads']
 # every option is passed explicitly, so the stages' own defaults do not matter here
 READ_OPTS = (f"--mm {READS['mm']} --min-mapq {READS['min_mapq']}" + (' --dedup' if READS['dedup'] else ' --no-dedup'))
 NAN_OPT = '--missing-as-nan' if SETTINGS['score']['missing_as_nan'] else '--no-missing-as-nan'
+PARK_OPT = '--park' if SETTINGS['park'] else ''      # stages: Park's behaviour where it has no setting
 QC = SETTINGS['qc']
 
 # ---------------------------------------------------------------- genomes and samples
@@ -204,7 +205,7 @@ rule peaks:
     input: bam='bam/{name}.bam', bai='bam/{name}.bam.bai'
     output: 'peaks/{name}_{chrom}_peak.gtab.gz'
     resources: mem_mb=lambda w, attempt: 24000 * attempt, runtime=lambda w, attempt: rt(12 * 60, attempt)
-    shell: f'{CLI} peaks --bam {{input.bam}} --chrom {{wildcards.chrom}} {READ_OPTS} -o {{output}}'
+    shell: f'{CLI} peaks --bam {{input.bam}} --chrom {{wildcards.chrom}} {READ_OPTS} {PARK_OPT} -o {{output}}'
 
 rule areas:
     # read coverage in a 171 bp window at each dyad, and in 171 bp windows every 25 bp
