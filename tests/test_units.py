@@ -562,3 +562,52 @@ def test_run_record(tmp_path, monkeypatch):
     assert len(r['warnings']) == 1 and 'not a reference Park et al. used' in r['warnings'][0]
     assert record.park_warnings(settings.resolve({}), genomes) == []
     assert record.code_version().startswith('0.')
+
+
+def test_fetch_commands(tmp_path, monkeypatch):
+    # condense fetch, with prefetch / fasterq-dump / pigz mocked (nothing is downloaded)
+    import gzip
+    from pathlib import Path
+    from condense_calc import cli, fetch
+    calls, prefetch_rc, spots = [], iter([1, 0]), {'n': 3}
+    R = lambda rc=0, out='': type('R', (), {'returncode': rc, 'stdout': '', 'stderr': out})()
+
+    def run(cmd, **k):
+        calls.append(cmd)
+        tool, tmp = Path(cmd[0]).name, tmp_path / f'tmp_{cmd[-1].split("/")[-1].split(".")[0]}'
+        if tool == 'prefetch':
+            rc = next(prefetch_rc, 0)
+            if rc == 0:
+                (tmp / cmd[-1]).mkdir(parents=True, exist_ok=True)
+                (tmp / cmd[-1] / f'{cmd[-1]}.sra').touch()
+            return R(rc)
+        if tool == 'fasterq-dump':
+            run_id = Path(cmd[-1]).stem
+            for m in (1, 2):
+                _fq(Path(cmd[cmd.index('-O') + 1]) / f'{run_id}_{m}.fastq',
+                    [f'@VL1:1:F:1:1:1:{i} {m}:N:0:ACGT' for i in range(3)])
+            return R(0, f'spots read      : {spots["n"]}\nreads read      : 6\n')
+        f = Path(cmd[-1])                                               # pigz
+        gzip.open(f'{f}.gz', 'wb').write(f.read_bytes())
+        f.unlink()
+        return R()
+    monkeypatch.setattr(fetch.subprocess, 'run', run)
+    monkeypatch.setattr(fetch.shutil, 'which', lambda n: f'/sw/bin/{n}')
+    waits = []
+    out = fetch.fetch('SRR1', tmp_path, threads=4, sleep=waits.append)
+    assert [p.name for p in out] == ['SRR1_1.fastq.gz', 'SRR1_2.fastq.gz'] and all(p.exists() for p in out)
+    assert calls[0] == ['/sw/bin/prefetch', '--verify', 'yes', '--max-size', '200G', '-O', str(tmp_path / 'tmp_SRR1'),
+                        'SRR1']
+    assert calls[1] == calls[0] and waits == [120]                      # failed once: retried after 2 min
+    dump = calls[2]
+    assert dump[0] == '/sw/bin/fasterq-dump' and '--split-files' in dump and dump[-1].endswith('SRR1/SRR1.sra')
+    assert dump[dump.index('--seq-defline') + 1] == '@$sn $ri:N:0:$sg' and dump[dump.index('--qual-defline') + 1] == '+'
+    assert calls[3] == ['/sw/bin/pigz', '-p', '4', str(tmp_path / 'tmp_SRR1/SRR1_1.fastq')]
+    assert not (tmp_path / 'tmp_SRR1').exists()                          # .sra and temporary files deleted
+    assert fetch.fetch('SRR1', tmp_path) == out and len(calls) == 5      # already there: nothing run
+    spots['n'] = 4                                                      # fewer reads than the run's spots
+    with pytest.raises(fetch.FetchError, match=r'\[3, 3\] reads .* 4 spots'):
+        fetch.fetch('SRR2', tmp_path)
+    monkeypatch.setattr(cli, '_on_login_node', lambda: False)
+    with pytest.raises(SystemExit, match='1 of 2 runs failed: SRR2'):
+        cli.main(['fetch', 'SRR1', 'SRR2', '-o', str(tmp_path)])

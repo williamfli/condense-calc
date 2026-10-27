@@ -3,6 +3,8 @@
   condense init FASTQ_DIR      write a sample sheet listing the FASTQ files (fill in conc, fraction)
   condense SHEET               run everything: alignment, scores, c-half fit, QC report
   condense SHEET --slurm       the same, each step as a Slurm job
+  condense SHEET --park        reproduce the GEO tables of Park et al. 2025 (their processing and references)
+  condense fetch SRR...        FASTQs of SRA runs as Park et al. aligned them (for --park)
 
 The other subcommands are single pipeline stages, called by the workflow."""
 import argparse
@@ -18,7 +20,7 @@ from pathlib import Path
 import pysam
 import yaml
 
-from . import counts, fastq, fit, fragments, gtab, qc, reference, score, settings, sheet, titration
+from . import counts, fastq, fetch, fit, fragments, gtab, qc, reference, score, settings, sheet, titration
 
 PKG = Path(__file__).resolve().parent
 
@@ -139,6 +141,22 @@ def cmd_init(args):
                   f'{args.series}\t0.794\t0.105\treads/sp8_L002_R1.fastq.gz']
     out.write_text('\n'.join(lines) + '\n')
     print(f'wrote {out}' + (f' with {len(fastqs)} FASTQ files; fill in conc and fraction' if fastqs else ''))
+
+
+def cmd_fetch(args):
+    if _on_login_node():
+        sys.exit('Downloading and unpacking runs is not light work for a login node; run it as a job, e.g.\n'
+                 f"  sbatch -c 4 --mem 4G -t 0-08:00 --wrap 'condense fetch {' '.join(args.runs)} -o {args.out} "
+                 "--threads 4'")
+    failed = []
+    for run in args.runs:
+        try:
+            fetch.fetch(run, args.out, args.threads)
+        except (fetch.FetchError, subprocess.CalledProcessError) as e:
+            print(f'FAILED {run}: {e}', file=sys.stderr, flush=True)
+            failed.append(run)
+    if failed:
+        sys.exit(f'{len(failed)} of {len(args.runs)} runs failed: {" ".join(failed)}')
 
 
 def cmd_reference(args):
@@ -406,6 +424,13 @@ def main(argv=None):
     s.add_argument('--series', default='series1', help='series name to fill in (default series1)')
     s.add_argument('--force', action='store_true', help='overwrite an existing sheet')
     s.set_defaults(func=cmd_init)
+
+    s = sub.add_parser('fetch', help='FASTQs of SRA runs as Park et al. aligned them (NCBI SRA Normalized)',
+                       description=fetch.__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    s.add_argument('runs', nargs='+', metavar='SRR', help='SRA run accessions')
+    s.add_argument('-o', '--out', default='.', help='folder for <run>_1.fastq.gz and <run>_2.fastq.gz (default: here)')
+    s.add_argument('--threads', type=int, default=1, help='for fasterq-dump and pigz (default 1)')
+    s.set_defaults(func=cmd_fetch)
 
     s = sub.add_parser('reference', help='download a genome (FASTA + bowtie2 index); run does this when needed')
     s.add_argument('genomes', nargs='*', help=f'{", ".join(reference.PRESETS)}, or a FASTA file')
