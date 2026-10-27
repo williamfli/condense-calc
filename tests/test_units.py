@@ -344,3 +344,23 @@ def test_settings_file_nucleosomes_kept(tmp_path, monkeypatch):
     assert _sheet_config(tmp_path, monkeypatch, [], 'nucleosomes: true\n')['nucleosomes'] is True
     assert 'nucleosomes' not in _sheet_config(tmp_path, monkeypatch, [], 'threads: 2\n')
     assert _sheet_config(tmp_path, monkeypatch, ['--nucleosomes'])['nucleosomes'] is True
+
+
+def test_sheet_titration_verbatim(tmp_path):
+    # the sheet's own strings: {f:g} wrote 6 digits (0.097744361 -> 0.0977444), which cost GEO byte identity
+    for n in ['in', 'a']:
+        for r in (1, 2):
+            (tmp_path / f'{n}_R{r}.fastq.gz').touch()
+    (tmp_path / 's.tsv').write_text('series\tconc\tfraction\tfastq\n'
+                                    'X\t0\t\tin_R1.fastq.gz\n'
+                                    'X\t0.79432823\t0.097744361\ta_R1.fastq.gz\n')
+    notes = []
+    sheet.read_simple(tmp_path / 's.tsv', 'hg38', workdir=tmp_path / 'run', note=notes.append)
+    assert (tmp_path / 'run/titration/X.tsv').read_text() == \
+        'tnum\tconc\tsurvival_fraction\n0\t0\t1\n1\t0.79432823\t0.097744361\n'
+    assert not notes
+    (tmp_path / 's.tsv').write_text('series\tconc\tfraction\tfastq\nX\t0\t1\tin_R1.fastq.gz\n'
+                                    'X\t0.794\t0.0977444\ta_R1.fastq.gz\n')
+    sheet.read_simple(tmp_path / 's.tsv', 'hg38', workdir=tmp_path / 'run', note=notes.append)
+    assert len(notes) == 1 and '0.0977444' in notes[0]
+    assert sheet._sig_digits('0.400') == 3 and sheet._sig_digits('9.7744361e-2') == 8

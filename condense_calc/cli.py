@@ -148,7 +148,7 @@ def cmd_reference(args):
 
 def _check(src):
     with tempfile.TemporaryDirectory() as tmp:
-        sheet.read_simple(src, 'check', workdir=tmp)
+        sheet.read_simple(src, 'check', workdir=tmp, note=lambda m: print(m, file=sys.stderr))
 
 
 def _user_settings(args, src):

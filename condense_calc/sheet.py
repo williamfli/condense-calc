@@ -46,8 +46,14 @@ def _expand(pattern, base):
     return [str(p.resolve())]
 
 
-def read_simple(path, cell, nucleosomes=False, workdir='.'):
-    """The sample sheet. Writes workdir/titration/<series>.tsv (only when its content changes)."""
+def _sig_digits(text):
+    """Significant digits of a number as written ('0.0977444' -> 6, '0.400' -> 3)."""
+    return len(text.strip().lower().lstrip('+-').split('e')[0].replace('.', '').lstrip('0'))
+
+
+def read_simple(path, cell, nucleosomes=False, workdir='.', note=None):
+    """The sample sheet. Writes workdir/titration/<series>.tsv (only when its content changes), with conc and
+    fraction exactly as written in the sheet. note: called with a message if fractions look rounded."""
     path = Path(path).resolve()
     base = path.parent
     df = pd.read_csv(path, sep='\t', dtype=str, comment='#', skip_blank_lines=True).fillna('')
@@ -75,11 +81,11 @@ def read_simple(path, cell, nucleosomes=False, workdir='.'):
         except ValueError:
             problems.append(f'{line}: conc {r["conc"]!r} is not a number (0 for the input)')
             continue
-        frac = r['fraction']
+        frac_text = r['fraction']
         if conc == 0:
-            frac = frac or '1'
+            frac_text = frac_text or '1'
         try:
-            frac = float(frac)
+            frac = float(frac_text)
             if not 0 < frac <= 1:
                 raise ValueError
         except ValueError:
@@ -94,6 +100,7 @@ def read_simple(path, cell, nucleosomes=False, workdir='.'):
             if not Path(f).exists():
                 problems.append(f'{line}: {f} not found')
         rows.append(dict(series=r['series'], rep=r['rep'] or '1', conc=conc, fraction=frac,
+                         conc_text=r['conc'], frac_text=frac_text,
                          point=r['point'], agent=r['agent'], r1=r1s, r2=r2s))
     if problems:
         raise SheetError(f'{path}:\n  ' + '\n  '.join(problems))
@@ -113,15 +120,20 @@ def read_simple(path, cell, nucleosomes=False, workdir='.'):
                 raise SheetError(f'{path}: series {name}, conc {conc}: rows give different fractions')
             points = set(h['point']) - {''}
             tnum = int(points.pop()) if points else k
-            tit.append((tnum, conc, h['fraction'].iloc[0]))
+            tit.append((tnum, h['conc_text'].iloc[0], h['frac_text'].iloc[0]))
             lib.append(dict(name=f'{name}_{tnum}', series=name, group=series, cell=cell, tnum=tnum,
                             deep=bool(nucleosomes), agent=h['agent'].iloc[0],
                             fastq1=','.join(f for fs in h['r1'] for f in fs),
                             fastq2=','.join(f for fs in h['r2'] for f in fs),
                             titration=str((workdir / 'titration' / f'{name}.tsv').resolve())))
+        # as written: rounding f to 6 digits ({f:g}) shifted GEO-reproduction scores by 1e-5
         _write_if_changed(workdir / 'titration' / f'{name}.tsv',
-                          'tnum\tconc\tsurvival_fraction\n'
-                          + ''.join(f'{t}\t{c:g}\t{f:g}\n' for t, c, f in sorted(tit)))
+                          'tnum\tconc\tsurvival_fraction\n' + ''.join(f'{t}\t{c}\t{f}\n' for t, c, f in sorted(tit)))
+    short = sorted({r['frac_text'] for r in rows if float(r['frac_text']) < 1 and _sig_digits(r['frac_text']) <= 6})
+    if note and short:
+        note(f'Note: {path}: {len(short)} soluble fraction(s) have 6 or fewer significant digits (e.g. {short[0]}). '
+             'They are used as written. If they were rounded (e.g. by a spreadsheet), give the full values: '
+             "Park's GEO tables used full precision, and 6-digit values change scores by up to 1e-5.")
     return _finish(pd.DataFrame(lib), path)
 
 
