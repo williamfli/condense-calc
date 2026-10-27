@@ -92,6 +92,36 @@ def test_score_formula(tmp_path):
     assert rows_na[:2] == rows and rows_na[2] == ['chr1', '20', '30', 'NA']
 
 
+def test_na_rows_downstream(tmp_path):
+    # default missing_as_nan: NA rows (bins without input reads) pass through concat and the QC summaries
+    import json
+    from condense_calc import qc
+    hdr, n, rng = ['Chromosome', 'Start', 'End'], 20, np.random.default_rng(1)
+
+    def tab(path, cols):                                   # cols: {name: n values}
+        gtab.write(path, hdr + list(cols), [['chr1', 10 * i, 10 * i + 10] + [v[i] for v in cols.values()]
+                                            for i in range(n)])
+        return path
+    score_of = lambda na: ['NA' if i in na else round(float(rng.normal()), 5) for i in range(n)]    # as score() writes
+    pts = [tab(tmp_path / f'X_{t}_score.gtab.gz', {f'X_{t}': score_of((3, 7))}) for t in (1, 2)]
+    header, rows = score.concatenate(pts)
+    gtab.write(tmp_path / 'X.gtab.gz', header, rows)
+    rows = [l.split('\t') for l in gtab.open_text(tmp_path / 'X.gtab.gz').read().splitlines()[1:]]
+    assert len(rows) == n and rows[3][3:] == rows[7][3:] == ['NA', 'NA']
+    tab(tmp_path / 'Y.gtab.gz', {'X_1': score_of((5,)), 'X_2': score_of((5,))})   # a replicate
+    bins = [tab(tmp_path / f'X_{t}_bin.gtab.gz', {f'X_{t}': [0 if t == 0 and i in (3, 7) else int(rng.integers(1, 50))
+                                                             for i in range(n)]}) for t in (0, 1, 2)]
+    samples = [tmp_path / f'X_{t}.json' for t in (0, 1, 2)]
+    for t, f in enumerate(samples):
+        f.write_text(json.dumps({'sample': f'X_{t}'}))
+    (tmp_path / 't.tsv').write_text('tnum\tconc\tsurvival_fraction\n0\t0\t1\n1\t0.2\t0.8\n2\t0.5\t0.4\n')
+    d = qc.series_stats('X', samples, bins, tmp_path / 'X.gtab.gz', tmp_path / 't.tsv')
+    assert d['zero_input_fraction'] == 2 / n and [p['bins_scored'] for p in d['points']] == [n - 2, n - 2]
+    assert all(np.isfinite([p['median'], p['q05'], p['rho_input'], p['rho_supernatant']]).all() for p in d['points'])
+    r = qc.replicate_stats('X', {'10kb': [tmp_path / 'X.gtab.gz', tmp_path / 'Y.gtab.gz']})
+    assert [p['bins'] for p in r['pairs']] == [n - 3, n - 3] and all(np.isfinite(p['spearman']) for p in r['pairs'])
+
+
 def test_py2_formatting():
     assert gtab.py2_str(3) == '3' and gtab.py2_str(3.0) == '3.0' and gtab.py2_str(2.04069) == '2.04069'
     assert gtab.py2_round(0.125, 2) == 0.13          # Python 3 round() gives 0.12
