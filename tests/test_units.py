@@ -628,6 +628,16 @@ def test_config_samples_errors(tmp_path):
         cli._check(cfg, 'lite')
 
 
+def test_config_run_rejects_sheet_options(tmp_path):
+    # --settings, -g and --nucleosomes would be ignored by a config run: stop instead
+    from condense_calc import cli
+    cfg = tmp_path / 'c.yaml'
+    cfg.write_text('samples: s.tsv\n')
+    for extra in (['--settings', 'x.yaml'], ['-g', 'mm10'], ['--nucleosomes']):
+        with pytest.raises(SystemExit, match='not used in a config run'):
+            cli.main(['run', str(cfg), '-o', str(tmp_path / 'out'), *extra])
+
+
 def test_park_chry_rule():
     from condense_calc import settings
     hs = [f'chr{i}' for i in range(1, 23)] + ['chrX', 'chrY']

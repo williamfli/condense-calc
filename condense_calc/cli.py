@@ -314,6 +314,11 @@ def cmd_run(args):
     if not src.exists():
         sys.exit(f'{args.sheet} not found')
     is_sheet = src.suffix not in ('.yaml', '.yml')
+    unused = [o for o, given in (('--settings', args.settings), ('-g', args.genome != 'hg38'),
+                                 ('--nucleosomes', args.nucleosomes)) if given] if not is_sheet else []
+    if unused:
+        sys.exit(f'{", ".join(unused)}: not used in a config run. Settings go in {src.name}, genomes under genomes: '
+                 'and cells:, and depth: deep in the samples file gives per-nucleosome scores')
     try:
         user = _user_settings(args, src)
         S = settings.resolve(user)                                  # unknown keys: stop before anything starts

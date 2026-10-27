@@ -9,7 +9,7 @@ Where the defaults differ from Park et al.'s processing, and what `--park` resto
 
 In a YAML file given with `--settings FILE` (sample-sheet run), or in the config file (config run).
 `--park`, `--qc` and (sample-sheet runs) `--nucleosomes` set `park`, `qc` and `nucleosomes`. Settings you give
-override `--park`. `--settings`, `--nucleosomes` and `-g` have no effect on a config run.
+override `--park`. A config run stops on `--settings`, `--nucleosomes` and `-g`: put these in the config.
 
 | setting | default | `--park` | |
 |---|---|---|---|

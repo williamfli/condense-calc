@@ -56,7 +56,7 @@ On a cluster, run the first two in a job (`condense` prints an `sbatch` line to 
 
 Tables tested identical to GEO's, byte for byte:
 `H1_NCP_PEG_2rep` (10 kb), `H1_NCP_sp_2rep` (10 kb), `H1_NCP_sp_1rep_deep` (1 kb and per nucleosome),
-`E14_NCP_sp_1rep` and `E14_NCP_sp_2rep` (10 kb).
+`E14_NCP_sp_1rep` and `E14_NCP_sp_2rep` (10 kb; GEO names these columns by library, so after renaming its header line).
 
 ## Changing one Park setting
 
