@@ -19,6 +19,7 @@ N_READS = 10_000
 PARK_NAME = re.compile(r'@\S+ ([12])(:|$)')
 FIX = ("Make the FASTQs from NCBI's SRA Normalized data: condense fetch SRR... (or fasterq-dump --split-files "
        "--seq-defline '@$sn $ri:N:0:$sg' --qual-defline '+')")
+WHERE = 'in the --settings file of a sample-sheet run, or in the config file'
 
 
 def _open(path):
@@ -49,12 +50,13 @@ def check_file(path, mate, mode='lite', n=N_READS):
     if mode in ('lite', 'park') and res['sra_lite']:
         res['problems'].append(f"{path}: every base quality of the first {reads:,} reads is '?', i.e. SRA Lite, "
                                f'which has no base qualities. {FIX}. To align these reads anyway, set '
-                               'fastq_check: off.')
+                               f'fastq_check: off ({WHERE}).')
     if mode == 'park' and bad_name is not None:
         res['problems'].append(f"{path}: read name {bad_name!r} is not in the form Park et al. aligned "
                                f"('@<spot name> {mate}:N:0:...', the mate number one space after the name); "
                                'bowtie2 places multi-mapping reads by their name, so the GEO tables are not '
-                               f'reproduced. {FIX}. To align them anyway, set fastq_check: lite.')
+                               f"reproduced. {FIX}. To align them anyway, set fastq_check: "
+                               f"{'off' if res['sra_lite'] else 'lite'} ({WHERE}).")
     return res
 
 

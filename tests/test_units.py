@@ -559,6 +559,11 @@ def test_fastq_checks(tmp_path):
     assert r['sra_lite'] and r['reads_checked'] == 4 and 'condense fetch' in r['problems'][0]
     assert fastq.check([inst], [bare], 'off') == []
     assert len(fastq.problems(fastq.check([ena], [bare], 'park'))) == 1
+    # SRA Lite and ENA names at once: both messages give the setting that aligns the file anyway, off
+    both = _fq(tmp_path / 'x_1.fastq.gz', ['@SRR1.1 VL1:75:AAG:1:1101:1:1/1'], qual='?' * 8, gz=True)
+    msgs = fastq.check_file(both, 1, 'park')['problems']
+    assert len(msgs) == 2 and all('set fastq_check: off (in the --settings file' in m for m in msgs)
+    assert 'set fastq_check: lite' in fastq.check_file(ena, 1, 'park')['problems'][0]
     (tmp_path / 'n.fq').write_text('@a 1\nAC\n+\n??\n' * 2 + '@a 1\nAC\n+\nII\n')     # only n reads are read
     assert fastq.check_file(tmp_path / 'n.fq', 1, 'lite', n=2)['sra_lite']
 
