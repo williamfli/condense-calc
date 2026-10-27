@@ -1,9 +1,8 @@
 """Cheap checks of FASTQ files before alignment: the first 10,000 reads of each file (milliseconds).
 
 Settings `fastq_check`:
-  lite  (default) stop if every base quality is '?': SRA Lite, which keeps no base qualities. ENA serves 92 of
-        the 406 runs of GSE252941 so. bowtie2 aligns such reads worse (E14_NCP_sp_1rep input: 1.2% fewer
-        concordant pairs), and input and supernatant libraries may differ in it.
+  lite  (default) stop if every base quality is '?': SRA Lite, which keeps no base qualities (ENA serves some
+        runs so). bowtie2 aligns such reads worse, and input and supernatant libraries may differ in it.
   park  (Park mode) also stop unless the read names have the form Park et al. aligned, the instrument's:
         '@<spot name> <mate>:N:0:<index>' or '@<spot name> <mate>', the mate number one space after the
         name. bowtie2 picks among equally good hits by a seed from the read name, so ENA's

@@ -27,8 +27,8 @@ PRESETS = {
 }
 PARK = ('hg38_ucsc', 'mm10')            # the references Park et al. used
 # sequence sets met before under a preset's name
-OTHERS = {'a0b9649980a9063a8d14ff2bfd7c202c': "UCSC mm10 chr1-19, X, Y, M (22 sequences; condense-calc's "
-                                              'mm10 until 2026-10)'}
+OTHERS = {'a0b9649980a9063a8d14ff2bfd7c202c': 'UCSC mm10 chr1-19, X, Y, M (22 sequences; the mm10 of earlier '
+                                              'condense-calc versions)'}
 
 
 CANONICAL = re.compile(r'(chr)?([0-9]+|X|Y)')
