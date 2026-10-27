@@ -578,6 +578,19 @@ def test_sheet_run_stops_on_sra_lite(tmp_path, monkeypatch):
     cli._check(tmp_path / 's.tsv', 'lite', tmp_path / 'out')
 
 
+def test_config_samples_errors(tmp_path):
+    # a wrong samples path or a missing column: one clear line, not a pandas traceback
+    from condense_calc import cli
+    cfg = tmp_path / 'c.yaml'
+    cfg.write_text('samples: nosuch.tsv\n')
+    with pytest.raises(sheet.SheetError, match='samples nosuch.tsv: .*No such file'):
+        cli._check(cfg, 'lite')
+    (tmp_path / 's.tsv').write_text('cell\tsample\tagent\ttnum\trep\tdepth\tfastq1\nH1\tNCP\tsp\t0\t1\t\ta.fq\n')
+    cfg.write_text('samples: s.tsv\n')
+    with pytest.raises(sheet.SheetError, match="samples s.tsv: no column 'fastq2'"):
+        cli._check(cfg, 'lite')
+
+
 def test_park_chry_rule():
     from condense_calc import settings
     hs = [f'chr{i}' for i in range(1, 23)] + ['chrX', 'chrY']

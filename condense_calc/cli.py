@@ -193,8 +193,12 @@ def _check(src, fastq_check='off', out=None):
         cfg = yaml.safe_load(src.read_text()) or {}
         if 'samples' not in cfg:
             return
-        libs = sheet.read_config_sheet(cfg['samples'], cfg.get('titration_dir', 'titration'),
-                                       lambda p: str((src.parent / Path(p).expanduser()).resolve()))
+        try:
+            libs = sheet.read_config_sheet(cfg['samples'], cfg.get('titration_dir', 'titration'),
+                                           lambda p: str((src.parent / Path(p).expanduser()).resolve()))
+        except (OSError, KeyError, ValueError) as e:      # pandas' parser errors are ValueErrors
+            what = f'no column {e}' if isinstance(e, KeyError) else str(e)
+            raise sheet.SheetError(f"{src}: samples {cfg['samples']}: {what}") from None
     else:
         with tempfile.TemporaryDirectory() as tmp:
             libs = sheet.read_simple(src, 'check', workdir=tmp, note=lambda m: print(m, file=sys.stderr))
