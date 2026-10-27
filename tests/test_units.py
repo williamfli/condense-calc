@@ -402,3 +402,9 @@ def test_park_preset_and_explicit_keys():
     a = argparse.Namespace(park=True, min_mapq=None, mm=None)
     cli._stage_defaults(a)
     assert (a.min_mapq, a.mm) == (0, 10)
+
+
+def test_bdata_opt_in():
+    from condense_calc import settings
+    assert settings.resolve({})['bdata'] is False and settings.resolve({'park': True})['bdata'] is False
+    assert settings.resolve({'bdata': 'true'})['bdata'] is True

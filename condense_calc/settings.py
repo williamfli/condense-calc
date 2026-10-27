@@ -18,6 +18,7 @@ DEFAULTS = {
     'score': {'missing_as_nan': True},  # bins without input reads: NA rows, so every table has the full bin grid
     'mscale': {'Ca': 5},                # molecule-number scale per agent (others 1)
     'fit': {'bin_size': 10000, 'min_tnum': 5, 'model': 'sigmoid', 'method': 'evolution', 'min_rsq': 0.5},
+    'bdata': False,                     # deep series: also sliding-window areas (bindata_ver3.py); no table uses them
     'qc': 'default',
     'qc_thresholds': {},
     'max_runtime': 3 * 24 * 60,         # minutes; the longest time limit a retried step may ask for
@@ -30,7 +31,7 @@ PARK = {
 # keys that say what to run, not how: written by `condense` or given in a config file
 INPUTS = ('sheet', 'genome', 'genomes', 'nucleosomes', 'samples', 'titration_dir', 'cells', 'chroms', 'refs',
           'align_threads')
-BOOLS = ('park', 'reads.dedup', 'score.missing_as_nan')
+BOOLS = ('park', 'bdata', 'reads.dedup', 'score.missing_as_nan')
 CHOICES = {'qc': ('off', 'default', 'verbose')}
 NAMED = ('mscale', 'qc_thresholds')     # dicts whose keys are names (agents, QC thresholds)
 
