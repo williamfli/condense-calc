@@ -408,3 +408,27 @@ def test_bdata_opt_in():
     from condense_calc import settings
     assert settings.resolve({})['bdata'] is False and settings.resolve({'park': True})['bdata'] is False
     assert settings.resolve({'bdata': 'true'})['bdata'] is True
+
+
+def test_reference_presets(tmp_path):
+    import hashlib
+    from condense_calc import reference
+    fai = _fai(tmp_path, [('chr1', 1000), ('chr2', 500)])
+    assert reference.fingerprint(fai) == hashlib.md5(b'chr1\t1000\nchr2\t500\n').hexdigest()   # cut -f1,2 | md5sum
+    assert reference.locate('hg38_ucsc', tmp_path)[1:] == (tmp_path / 'hg38_ucsc/hg38_ucsc.fa', tmp_path / 'hg38_ucsc/hg38_ucsc')
+    assert reference.missing('mm10', tmp_path).startswith('download mm10')
+    # an older install under a preset's name (here 2 sequences) is refused, not used
+    d = tmp_path / 'mm10'
+    d.mkdir()
+    (d / 'mm10.fa.fai').write_text(fai.read_text())
+    for f in (reference.missing, reference.ensure):
+        with pytest.raises(SystemExit, match='(?s)holds another reference .*mv '):
+            f('mm10', tmp_path)
+
+
+def test_park_maps_hg38(tmp_path, monkeypatch):
+    cfg = _sheet_config(tmp_path, monkeypatch, ['--park'])
+    assert cfg['park'] is True and cfg['genome'] == 'hg38_ucsc'
+    cfg = _sheet_config(tmp_path, monkeypatch, ['--park', '-g', 'mm10'])
+    assert cfg['genome'] == 'mm10'                                  # Park's mouse reference is the default one
+    assert _sheet_config(tmp_path, monkeypatch, [])['genome'] == 'hg38'

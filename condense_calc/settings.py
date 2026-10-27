@@ -28,6 +28,9 @@ PARK = {
     'score': {'missing_as_nan': False},   # NCPscore_ver4.py drops bins without input reads
 }
 
+# Park mode: the reference Park et al. used in place of a preset (reference.py; mm10 is already theirs)
+PARK_GENOMES = {'hg38': 'hg38_ucsc'}
+
 # keys that say what to run, not how: written by `condense` or given in a config file
 INPUTS = ('sheet', 'genome', 'genomes', 'nucleosomes', 'samples', 'titration_dir', 'cells', 'chroms', 'refs',
           'align_threads')

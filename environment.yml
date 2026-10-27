@@ -14,6 +14,7 @@ dependencies:
   - pyyaml
   - bowtie2=2.5
   - samtools=1.21
+  - aria2                 # get_reference.sh: 16 connections (encode-public gives ~0.35 MB/s per connection)
   - snakemake=8
   - snakemake-executor-plugin-slurm
   - pytest

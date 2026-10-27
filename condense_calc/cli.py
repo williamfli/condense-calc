@@ -219,7 +219,7 @@ def _submit_controller(args, out):
         todo = reference.missing(args.genome, args.refs)
         if todo:
             ref = [sys.executable, '-m', 'condense_calc', 'reference', str(reference.locate(args.genome)[1])
-                   if args.genome not in reference.KNOWN else args.genome, '--threads', '8']
+                   if args.genome not in reference.PRESETS else args.genome, '--threads', '8']
             ref += ['--refs', args.refs] if args.refs else []
             # bowtie2-build of a mammalian genome: ~1-2 h on 8 cores, < 16 GB
             rjob = _sbatch(args, ['sbatch', '-J', 'condense-reference', '-c', '8', '--mem', '32G', '-t', '0-12:00',
@@ -241,9 +241,12 @@ def cmd_run(args):
         sys.exit(f'{args.sheet} not found')
     is_sheet = src.suffix not in ('.yaml', '.yml')
     try:
-        settings.resolve(_user_settings(args, src))                 # unknown keys: stop before anything starts
+        S = settings.resolve(_user_settings(args, src))             # unknown keys: stop before anything starts
     except (settings.SettingsError, OSError, yaml.YAMLError) as e:
         sys.exit(f'settings: {e}')
+    if S['park'] and is_sheet and args.genome in settings.PARK_GENOMES:
+        args.genome = settings.PARK_GENOMES[args.genome]
+        print(f'Park mode: genome {args.genome} ({reference.PRESETS[args.genome]["name"]})', flush=True)
     out = Path(args.outdir).resolve() if args.outdir else src.parent / 'results'
     out.mkdir(parents=True, exist_ok=True)
     # --slurm submits a controller job, also from an interactive (salloc / Open OnDemand) session: run in
@@ -366,7 +369,7 @@ def main(argv=None):
     s.set_defaults(func=cmd_init)
 
     s = sub.add_parser('reference', help='download a genome (FASTA + bowtie2 index); run does this when needed')
-    s.add_argument('genomes', nargs='+', help='hg38, mm10, or a FASTA file')
+    s.add_argument('genomes', nargs='+', help=f'{", ".join(reference.PRESETS)}, or a FASTA file')
     s.add_argument('--refs', help='where genomes are kept (default $CONDENSE_REFS, else ~/.cache/condense-calc)')
     s.add_argument('--threads', type=int, default=1, help='for building an index (mm10, own FASTA)')
     s.set_defaults(func=cmd_reference)
@@ -375,7 +378,8 @@ def main(argv=None):
                        description='Run everything. Arguments after -- go to snakemake.')
     s.add_argument('sheet', help='sample sheet (condense init), or a config.yaml for multi-genome runs')
     s.add_argument('-o', '--outdir', help='output folder (default: results/ next to the sheet)')
-    s.add_argument('-g', '--genome', default='hg38', help='hg38 (default), mm10, or a FASTA file')
+    s.add_argument('-g', '--genome', default='hg38',
+                   help='hg38 (default), mm10, hg38_ucsc, or a FASTA file; with --park, hg38 means hg38_ucsc')
     s.add_argument('--refs', help='where genomes are kept (default $CONDENSE_REFS, else ~/.cache/condense-calc)')
     s.add_argument('--nucleosomes', action='store_true',
                    help='also score every nucleosome (for deeply sequenced series; slower)')

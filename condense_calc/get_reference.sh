@@ -1,30 +1,59 @@
 #!/bin/bash
-# Download a genome FASTA (+ .fai) and its bowtie2 index into OUTDIR/<genome>/.
-#   get_reference.sh OUTDIR THREADS hg38 [mm10]      (usually via: condense reference hg38 --refs OUTDIR)
-# hg38: NCBI GRCh38 no-alt analysis set with its prebuilt bowtie2 index (~7 GB, ~30 min).
-# mm10: UCSC mm10 chr1-19, X, Y, M; the index is built here (a few hours; use more threads).
-# For hg38, the 4DN index named in Park et al.'s scripts gives identical counts in every 10 kb bin.
+# Download a genome FASTA (+ .fai) and its bowtie2 index into OUTDIR/<genome>/, md5-checked.
+#   get_reference.sh OUTDIR THREADS GENOME...      (usually via: condense reference GENOME --refs OUTDIR)
+# hg38:      NCBI GRCh38 no-alt analysis set with NCBI's prebuilt bowtie2 index (~7 GB, ~30 min).
+# mm10:      ENCODE mm10 no-alt analysis set (66 sequences) with ENCODE's prebuilt bowtie2 index ENCFF309GLL
+#            (~4 GB); the same index files as 4DN 4DNFI2493SDN, Park et al.'s "4D_mm10", used if ENCODE fails.
+# hg38_ucsc: UCSC hg38.fa as distributed (455 sequences, with alts), Park et al.'s human reference; the index is
+#            built here (~1.5 h with 8 threads, ~8 GB of memory).
+# Downloads use aria2c (16 connections) when it is installed, else wget: one connection to encode-public gives
+# ~0.35 MB/s.
 set -euo pipefail
 OUT=$(realpath "$1"); THREADS=$2; shift 2
 NCBI=https://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/001/405/GCA_000001405.15_GRCh38/seqs_for_alignment_pipelines.ucsc_ids
+S3=https://encode-public.s3.amazonaws.com
+DN=https://4dn-open-data-public.s3.amazonaws.com/fourfront-webprod/files/63e22058-79c6-4e24-8231-ca4afac29dda
+get() {   # get URL MD5: download into the current folder (resuming a partial file), then check the md5
+  local f; f=$(basename "$1")
+  if command -v aria2c >/dev/null; then
+    aria2c -q -c -x 16 -s 16 -k 8M --file-allocation=none --auto-file-renaming=false -o "$f" "$1" || return 1
+  else
+    wget -q -c "$1" || return 1
+  fi
+  echo "$2  $f" | md5sum -c --quiet - || { echo "md5 mismatch, deleted: $f" >&2; rm -f "$f"; return 1; }
+}
+link_index() {   # name the extracted index files <genome>.*.bt2
+  for f in $(find . -name '*.bt2' ! -name "$G.*"); do
+    ln -sf "$f" $G.$(basename "$f" | grep -oE '(rev\.)?[0-9]\.bt2$'); done
+  [ "$(ls $G.*.bt2 | wc -l)" -eq 6 ] || { echo "expected 6 $G index files" >&2; exit 1; }
+}
+faidx() {   # faidx N: index $G.fa and check that it holds N sequences
+  samtools faidx $G.fa
+  [ "$(wc -l < $G.fa.fai)" -eq "$1" ] || { echo "$G.fa: expected $1 sequences" >&2; exit 1; }
+}
 for G in "$@"; do
   mkdir -p "$OUT/$G" && cd "$OUT/$G"
   case $G in
   hg38)
     F=GCA_000001405.15_GRCh38_no_alt_analysis_set.fna
-    wget -q -c $NCBI/$F.gz $NCBI/$F.bowtie_index.tar.gz
-    gunzip -c $F.gz > hg38.fa && samtools faidx hg38.fa
-    tar -xzf $F.bowtie_index.tar.gz
-    for f in $(find . -name '*.bt2' ! -name 'hg38.*'); do      # name the index files hg38.*.bt2
-      ln -sf "$f" hg38.$(basename "$f" | grep -oE '(rev\.)?[0-9]\.bt2$'); done
-    [ "$(ls hg38.*.bt2 | wc -l)" -eq 6 ] || { echo 'expected 6 hg38 index files' >&2; exit 1; }
+    get $NCBI/$F.gz a08035b6a6e31780e96a34008ff21bd6
+    get $NCBI/$F.bowtie_index.tar.gz 3f493e82d549f1d476491930965c10d0
+    gunzip -c $F.gz > hg38.fa && faidx 195
+    tar -xzf $F.bowtie_index.tar.gz && link_index
     rm $F.gz $F.bowtie_index.tar.gz ;;
   mm10)
-    wget -q -c https://hgdownload.soe.ucsc.edu/goldenPath/mm10/bigZips/mm10.fa.gz
-    gunzip -c mm10.fa.gz > mm10.full.fa && samtools faidx mm10.full.fa
-    samtools faidx mm10.full.fa $(cut -f1 mm10.full.fa.fai | grep -E '^chr([0-9]+|X|Y|M)$') > mm10.fa
-    samtools faidx mm10.fa && rm mm10.full.fa*
-    bowtie2-build --threads "$THREADS" mm10.fa mm10 && rm mm10.fa.gz ;;
+    F=mm10_no_alt_analysis_set_ENCODE.fasta.gz
+    get $S3/2016/01/23/b6a24661-be65-48a4-9e4e-44a007f35f5c/$F c3eba224e059be03bdf1de2f30c1a969
+    gunzip -c $F > mm10.fa && faidx 66
+    { get $S3/2019/10/17/b17e887f-3dad-4380-ab9b-147132feb71e/ENCFF309GLL.tar.gz 76804da5f4ddd74b2eacfe1c2597a6dc &&
+      tar -xzf ENCFF309GLL.tar.gz; } ||
+    { get $DN/4DNFI2493SDN.bowtie2Index.tar ff76754f3ce07c6a2e8306c7c5119ddd && tar -xf 4DNFI2493SDN.bowtie2Index.tar; }
+    link_index
+    rm -f $F ENCFF309GLL.tar.gz 4DNFI2493SDN.bowtie2Index.tar ;;
+  hg38_ucsc)
+    get https://hgdownload.soe.ucsc.edu/goldenPath/hg38/bigZips/hg38.fa.gz 1c9dcaddfa41027f17cd8f7a82c7293b
+    gunzip -c hg38.fa.gz > $G.fa && faidx 455
+    bowtie2-build --threads "$THREADS" $G.fa $G && rm hg38.fa.gz ;;
   *) echo "unknown genome $G" >&2; exit 1 ;;
   esac
   echo "$G: fasta $OUT/$G/$G.fa, bowtie2_index $OUT/$G/$G"

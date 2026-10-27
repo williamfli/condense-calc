@@ -1,11 +1,31 @@
-"""Genome references: FASTA (+ .fai) and bowtie2 index, downloaded on first use."""
+"""Genome references: FASTA (+ .fai) and bowtie2 index, downloaded on first use (get_reference.sh).
+
+Presets, each identified by a fingerprint of its sequence names and lengths (md5 of the first two
+columns of the .fai), which is checked whenever a preset is used:
+  hg38       NCBI GRCh38 no-alt analysis set: no alt haplotypes; chrY PARs and duplicate arrays masked
+  mm10       ENCODE mm10 no-alt analysis set (ENCFF309GLL): 66 sequences, chrY PAR masked. Park et al.
+             used the same index (4DN 4DNFI2493SDN), so Park mode keeps it
+  hg38_ucsc  UCSC hg38.fa as distributed: 455 sequences with 261 alt haplotypes, nothing masked; Park
+             et al.'s human reference, used for hg38 in Park mode (settings.PARK_GENOMES)
+"""
+import hashlib
 import os
 import re
 import subprocess
 from pathlib import Path
 
 PKG = Path(__file__).resolve().parent
-KNOWN = ('hg38', 'mm10')
+PRESETS = {
+    'hg38': {'name': 'NCBI GRCh38 no-alt analysis set', 'contigs': 195,
+             'fingerprint': '9b996e0d2eabf4f49ef31793c11d2f45'},
+    'mm10': {'name': 'ENCODE mm10 no-alt analysis set (ENCFF309GLL)', 'contigs': 66,
+             'fingerprint': '1a3951070d28838887ce0c77dc27c2e3'},
+    'hg38_ucsc': {'name': 'UCSC hg38.fa with alt haplotypes', 'contigs': 455,
+                  'fingerprint': '65b2bdfb1382e0a8a219be9c04a8f1a7'},
+}
+# sequence sets met before under a preset's name
+OTHERS = {'a0b9649980a9063a8d14ff2bfd7c202c': "UCSC mm10 chr1-19, X, Y, M (22 sequences; condense-calc's "
+                                              'mm10 until 2026-10)'}
 
 
 CANONICAL = re.compile(r'(chr)?([0-9]+|X|Y)')
@@ -34,6 +54,32 @@ def default_chroms(fai):
     return keep
 
 
+def fingerprint(fai):
+    """md5 of the sequence names and lengths of a FASTA index (= `cut -f1,2 FAI | md5sum`)."""
+    rows = [l.split('\t')[:2] for l in Path(fai).read_text().splitlines() if l.strip()]
+    return hashlib.md5(''.join(f'{n}\t{L}\n' for n, L in rows).encode()).hexdigest()
+
+
+def identify(fai):
+    """The preset a FASTA index belongs to, or None."""
+    fp = fingerprint(fai)
+    return next((g for g, p in PRESETS.items() if p['fingerprint'] == fp), None)
+
+
+def _check_preset(genome, fasta):
+    """Stop if a preset's folder holds another sequence set, e.g. an older install under the same name."""
+    fai = Path(f'{fasta}.fai')
+    if genome not in PRESETS or not fai.exists():
+        return
+    fp = fingerprint(fai)
+    if fp != PRESETS[genome]['fingerprint']:
+        n = sum(1 for l in fai.read_text().splitlines() if l.strip())
+        held = OTHERS.get(fp, f'{n} sequences, fingerprint {fp}')
+        raise SystemExit(f'{fasta.parent} holds another reference ({held}), not {genome} = '
+                         f'{PRESETS[genome]["name"]}.\nMove it away (e.g. mv {fasta.parent} {fasta.parent}.old) '
+                         f'and run again: {genome} is then downloaded. Or give that FASTA as --genome.')
+
+
 def refs_dir(arg=None):
     return Path(arg or os.environ.get('CONDENSE_REFS') or Path.home() / '.cache' / 'condense-calc').expanduser()
 
@@ -45,12 +91,12 @@ def _index_ok(prefix):
 
 def locate(genome, refs=None):
     """(name, fasta, bowtie2 index prefix) of a genome name or FASTA path, without fetching anything."""
-    if genome in KNOWN:
+    if genome in PRESETS:
         d = refs_dir(refs) / genome
         return genome, d / f'{genome}.fa', d / genome
     fasta = Path(genome).expanduser().resolve()
     if not fasta.exists():
-        raise SystemExit(f'--genome: {genome} is neither {" nor ".join(KNOWN)} nor a FASTA file')
+        raise SystemExit(f'--genome: {genome} is neither {", ".join(PRESETS)} nor a FASTA file')
     index = fasta.with_suffix('') if fasta.suffix in ('.fa', '.fasta', '.fna') else fasta
     return index.name, fasta, index
 
@@ -58,26 +104,29 @@ def locate(genome, refs=None):
 def missing(genome, refs=None):
     """What ensure() would still have to do: None if the genome is ready, else a short description."""
     name, fasta, index = locate(genome, refs)
+    _check_preset(genome, fasta)
     if Path(f'{fasta}.fai').exists() and _index_ok(index):
         return None
-    if genome in KNOWN:
+    if genome in PRESETS:
         return f'download {genome} (FASTA and bowtie2 index) into {fasta.parent}'
     return f'build the bowtie2 index {index} (large genomes take hours)'
 
 
 def ensure(genome, refs=None, threads=1):
     """Return (name, fasta, bowtie2 index prefix) for a genome name or a FASTA path."""
-    if genome in KNOWN:
+    if genome in PRESETS:
         d = refs_dir(refs) / genome
         fasta, index = d / f'{genome}.fa', d / genome
+        _check_preset(genome, fasta)
         if not (Path(f'{fasta}.fai').exists() and _index_ok(index)):
             print(f'Downloading {genome} (FASTA and bowtie2 index) into {d}; this happens once.', flush=True)
             d.parent.mkdir(parents=True, exist_ok=True)
             subprocess.run(['bash', str(PKG / 'get_reference.sh'), str(d.parent), str(threads), genome], check=True)
+            _check_preset(genome, fasta)
         return genome, str(fasta), str(index)
     fasta = Path(genome).expanduser().resolve()
     if not fasta.exists():
-        raise SystemExit(f'--genome: {genome} is neither {" nor ".join(KNOWN)} nor a FASTA file')
+        raise SystemExit(f'--genome: {genome} is neither {", ".join(PRESETS)} nor a FASTA file')
     index = fasta.with_suffix('') if fasta.suffix in ('.fa', '.fasta', '.fna') else fasta
     if not Path(f'{fasta}.fai').exists():
         subprocess.run(['samtools', 'faidx', str(fasta)], check=True)
