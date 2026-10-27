@@ -18,6 +18,7 @@ DEFAULTS = {
     'score': {'missing_as_nan': True},  # bins without input reads: NA rows, so every table has the full bin grid
     'mscale': {'Ca': 5},                # molecule-number scale per agent (others 1)
     'fit': {'bin_size': 10000, 'min_tnum': 5, 'model': 'sigmoid', 'method': 'evolution', 'min_rsq': 0.5},
+    'bowtie2': 'bowtie2',               # 'bowtie2' (PATH: this environment's), a version (installed once), or a path
     'bdata': False,                     # deep series: also sliding-window areas (bindata_ver3.py); no table uses them
     'qc': 'default',
     'qc_thresholds': {},
@@ -26,6 +27,7 @@ DEFAULTS = {
 PARK = {
     'reads': {'min_mapq': 0},         # Park's MAPQ filter is commented out (bincount_ver3.py:111-114)
     'score': {'missing_as_nan': False},   # NCPscore_ver4.py drops bins without input reads
+    'bowtie2': '2.4.1',                 # the version in Park et al.'s Reporting Summary
 }
 
 # Park mode: the reference Park et al. used in place of a preset (reference.py; mm10 is already theirs)
@@ -93,6 +95,7 @@ def resolve(config=None, park=None):
         else:
             out[key] = given if key in user else (preset if preset is not None else default)
     out['park'] = mode
+    out['bowtie2'] = str(out['bowtie2'])        # YAML reads 2.5 as a number
     for key in BOOLS:
         sec, _, k = key.rpartition('.')
         d = out[sec] if sec else out

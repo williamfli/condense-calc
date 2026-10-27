@@ -9,8 +9,10 @@ columns of the .fai), which is checked whenever a preset is used:
              et al.'s human reference, used for hg38 in Park mode (settings.PARK_GENOMES)
 """
 import hashlib
+import json
 import os
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -82,6 +84,69 @@ def _check_preset(genome, fasta):
 
 def refs_dir(arg=None):
     return Path(arg or os.environ.get('CONDENSE_REFS') or Path.home() / '.cache' / 'condense-calc').expanduser()
+
+
+VERSION = re.compile(r'\d+(\.\d+)+')
+
+
+def bowtie2_dir(spec, refs=None):
+    """Folder of the bowtie2 to run, or None for the one on PATH. spec (settings `bowtie2`): 'bowtie2' (PATH),
+    a version (a conda env <refs>/envs/bowtie2-<version>, made by ensure_bowtie2), or a folder or file path."""
+    spec = str(spec)
+    if spec == 'bowtie2':
+        return None
+    if VERSION.fullmatch(spec):
+        return str(refs_dir(refs) / 'envs' / f'bowtie2-{spec}' / 'bin')
+    p = Path(spec).expanduser().resolve()
+    if p.is_dir():
+        return str(p / 'bin' if (p / 'bin' / 'bowtie2').exists() else p)
+    return str(p.parent)
+
+
+
+def missing_bowtie2(spec, refs=None):
+    """What ensure_bowtie2() would still have to do: None if that bowtie2 is there, else a short description."""
+    d = bowtie2_dir(spec, refs)
+    if d is None or (Path(d) / 'bowtie2').exists():
+        return None
+    if VERSION.fullmatch(str(spec)):
+        return f'install bowtie2 {spec} (a conda env in {Path(d).parent})'
+    raise SystemExit(f'bowtie2: no bowtie2 in {d} (settings bowtie2: {spec})')
+
+
+def bowtie2_version(folder=None):
+    """Version of the bowtie2 in folder (None: on PATH). Its wrapper is a Perl script, so the folder goes first on
+    PATH, as the align step does. Some conda builds print no version (bioconda 2.4.1: 'bowtie2-align-s version ');
+    then the environment's conda-meta record says it."""
+    env = dict(os.environ, PATH=f'{folder}{os.pathsep}{os.environ.get("PATH", "")}') if folder else None
+    out = subprocess.run(['bowtie2', '--version'], env=env, capture_output=True, text=True, check=True).stdout
+    m = re.match(r'\S+ version (\S+)', out)
+    if m:
+        return m.group(1)
+    where = Path(folder) if folder else Path(shutil.which('bowtie2') or '.').parent
+    meta = sorted(where.parent.glob('conda-meta/bowtie2-[0-9]*.json'))
+    return json.loads(meta[-1].read_text())['version'] if meta else None
+
+
+def ensure_bowtie2(spec, refs=None):
+    """Folder of the bowtie2 to run (None: PATH). A version is installed once, with mamba or conda, as
+    <refs>/envs/bowtie2-<version>; only bowtie2 runs from it (samtools stays this environment's)."""
+    todo = missing_bowtie2(spec, refs)
+    d = bowtie2_dir(spec, refs)
+    if todo:
+        conda = (os.environ.get('MAMBA_EXE') or os.environ.get('CONDA_EXE') or shutil.which('mamba')
+                 or shutil.which('conda'))
+        if not conda:
+            raise SystemExit(f'bowtie2 {spec}: mamba or conda is needed to install it; or set bowtie2: to the '
+                             'folder of an installed bowtie2')
+        env = Path(d).parent
+        print(f'Installing bowtie2 {spec} into {env}; this happens once.', flush=True)
+        env.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run([conda, 'create', '-y', '-q', '-p', str(env), '-c', 'conda-forge', '-c', 'bioconda',
+                        f'bowtie2={spec}'], check=True)
+    if d is not None and VERSION.fullmatch(str(spec)) and bowtie2_version(d) != str(spec):
+        raise SystemExit(f'{d}/bowtie2 is version {bowtie2_version(d)}, not {spec}')
+    return d
 
 
 def _index_ok(prefix):

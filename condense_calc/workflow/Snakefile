@@ -143,6 +143,15 @@ def mb(path_list, factor, base):
     return int(base + factor * sum(Path(p).stat().st_size for p in path_list if Path(p).exists()) / 1e6)
 
 # ---------------------------------------------------------------- alignment
+# bowtie2: this environment's (PATH), or the folder of settings `bowtie2` (a version: a conda env under the
+# refs folder, installed by `condense reference --bowtie2 VERSION`). Only bowtie2 runs from there.
+BT2_DIR = reference.bowtie2_dir(SETTINGS['bowtie2'], config.get('refs'))
+if BT2_DIR and not Path(BT2_DIR, 'bowtie2').exists():
+    raise ValueError(f"bowtie2 {SETTINGS['bowtie2']}: not in {BT2_DIR}; install it with "
+                     f"`condense reference --bowtie2 {SETTINGS['bowtie2']}` (in a Slurm job)")
+BT2 = f'PATH={BT2_DIR}:$PATH bowtie2' if BT2_DIR else 'bowtie2'
+
+
 rule align:
     # bowtie2 end-to-end, paired, reads trimmed to `trim_to` bases; then sorted and indexed
     input:
@@ -158,9 +167,10 @@ rule align:
     threads: THREADS
     # ~0.8 M pairs per minute with 8 threads; 6 GB
     resources: mem_mb=lambda w, attempt: 9000 * attempt, runtime=lambda w, attempt: rt(48 * 60, attempt)
-    log: 'logs/align/{name}.log'
+    log: bt2='logs/align/{name}.log', version='logs/align/{name}.bowtie2_version'
     shell:
-        f'bowtie2 -p {{threads}} --trim-to {TRIM} -x {{params.index}} -1 {{params.r1}} -2 {{params.r2}} 2> {{log}} '
+        f'{BT2} --version > {{log.version}} && '
+        f'{BT2} -p {{threads}} --trim-to {TRIM} -x {{params.index}} -1 {{params.r1}} -2 {{params.r2}} 2> {{log.bt2}} '
         '| samtools sort -@ 2 -m 1G -T bam/{wildcards.name}.tmp -o {output.bam} - && samtools index {output.bam}'
 
 # ---------------------------------------------------------------- binned scores

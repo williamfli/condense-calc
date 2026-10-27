@@ -142,8 +142,17 @@ def cmd_init(args):
 
 
 def cmd_reference(args):
+    if not args.genomes and not args.bowtie2:
+        sys.exit('nothing to do: name a genome, or give --bowtie2 VERSION')
     for g in args.genomes:
         print('\t'.join(reference.ensure(g, args.refs, args.threads)))
+    if args.bowtie2 and reference.missing_bowtie2(args.bowtie2, args.refs) and _on_login_node():
+        sys.exit(f'Installing bowtie2 {args.bowtie2} (conda) is not light work for a login node; run it in a job, '
+                 f"e.g. sbatch -c 1 --mem 8G -t 1:00:00 --wrap 'condense reference --bowtie2 {args.bowtie2}', "
+                 'or let condense ... --slurm do it.')
+    if args.bowtie2:
+        d = reference.ensure_bowtie2(args.bowtie2, args.refs)
+        print(f'bowtie2 {reference.bowtie2_version(d)}: {d}' if d else 'bowtie2: the one on PATH')
 
 
 def _check(src):
@@ -160,6 +169,12 @@ def _user_settings(args, src):
     return cfg
 
 
+def _todo(args, S, is_sheet):
+    """What has to be prepared before the workflow can start: the genome of a sheet run, a bowtie2 version."""
+    todo = [reference.missing(args.genome, args.refs)] if is_sheet else []
+    return [t for t in todo + [reference.missing_bowtie2(S['bowtie2'], args.refs)] if t]
+
+
 def _workflow_config(args, out):
     """Config for the workflow; a sample sheet becomes condense.yaml in the output folder."""
     src = Path(args.sheet).resolve()
@@ -168,7 +183,8 @@ def _workflow_config(args, out):
     _check(src)                                                      # fail early, before any job starts
     name, fasta, index = reference.ensure(args.genome, args.refs, _local_cores(args))
     cfg = _user_settings(args, src)
-    cfg.update(sheet=str(src), genome=name, genomes={name: {'fasta': fasta, 'bowtie2_index': index}})
+    cfg.update(sheet=str(src), genome=name, genomes={name: {'fasta': fasta, 'bowtie2_index': index}},
+               refs=str(reference.refs_dir(args.refs)))
     if args.nucleosomes:                                             # else keep the --settings file's value
         cfg['nucleosomes'] = True
     path = out / 'condense.yaml'
@@ -211,21 +227,23 @@ def _sbatch(args, cmd):
     return subprocess.run(cmd, check=True, capture_output=True, text=True).stdout.strip()
 
 
-def _submit_controller(args, out):
+def _submit_controller(args, out, S):
     """Run this command as a small Slurm job that submits and watches the steps. A genome that still has
-    to be downloaded or indexed is prepared first in its own job (8 cores), which the controller waits for."""
+    to be downloaded or indexed, or a bowtie2 version to install, is prepared first in its own job (8 cores),
+    which the controller waits for."""
     dep = []
-    if Path(args.sheet).suffix not in ('.yaml', '.yml'):
-        todo = reference.missing(args.genome, args.refs)
-        if todo:
-            ref = [sys.executable, '-m', 'condense_calc', 'reference', str(reference.locate(args.genome)[1])
-                   if args.genome not in reference.PRESETS else args.genome, '--threads', '8']
-            ref += ['--refs', args.refs] if args.refs else []
-            # bowtie2-build of a mammalian genome: ~1-2 h on 8 cores, < 16 GB
-            rjob = _sbatch(args, ['sbatch', '-J', 'condense-reference', '-c', '8', '--mem', '32G', '-t', '0-12:00',
-                                  '-o', str(out / 'condense_reference_%j.log'), '--wrap', shlex.join(ref)])
-            print(f'Submitted job {rjob} to {todo}; the run starts when it is done.')
-            dep = [f'--dependency=afterok:{rjob}', '--kill-on-invalid-dep=yes']
+    is_sheet = Path(args.sheet).suffix not in ('.yaml', '.yml')
+    todo = _todo(args, S, is_sheet)
+    if todo:
+        ref = [sys.executable, '-m', 'condense_calc', 'reference', '--threads', '8', '--bowtie2', S['bowtie2']]
+        if is_sheet:
+            ref.append(str(reference.locate(args.genome)[1]) if args.genome not in reference.PRESETS else args.genome)
+        ref += ['--refs', args.refs] if args.refs else []
+        # bowtie2-build of a mammalian genome: ~1-2 h on 8 cores, < 16 GB
+        rjob = _sbatch(args, ['sbatch', '-J', 'condense-reference', '-c', '8', '--mem', '32G', '-t', '0-12:00',
+                              '-o', str(out / 'condense_reference_%j.log'), '--wrap', shlex.join(ref)])
+        print(f'Submitted job {rjob} to {" and ".join(todo)}; the run starts when it is done.')
+        dep = [f'--dependency=afterok:{rjob}', '--kill-on-invalid-dep=yes']
     argv = [sys.executable, '-m', 'condense_calc', *sys.argv[1:]]
     # controller: 1 core, < 1 GB; it runs as long as the whole workflow
     job = _sbatch(args, ['sbatch', '-J', 'condense', '-c', '1', '--mem', '2G', '-t', args.time, *dep,
@@ -257,21 +275,26 @@ def cmd_run(args):
                 _check(src)
             except sheet.SheetError as e:
                 sys.exit(str(e))
-        return _submit_controller(args, out)
+        return _submit_controller(args, out, S)
     if not args.slurm and not args.dry_run and args.cores is None and _on_login_node():
         sys.exit('This looks like a cluster login node (sbatch is available, but this is not a Slurm job).\n'
                  'Login nodes are for light work: add --slurm to run each step as a Slurm job, or run inside\n'
                  'a job (salloc / sbatch). To run here anyway, give --cores N.')
-    if args.dry_run and is_sheet:
-        todo = reference.missing(args.genome, args.refs)
-        if todo:
+    todo = _todo(args, S, is_sheet)
+    if args.dry_run and todo:
+        if is_sheet:
             try:
                 _check(src)
             except sheet.SheetError as e:
                 sys.exit(str(e))
-            print(f'Sample sheet OK. Dry run stops here: the run would first {todo}.\n'
-                  'Run without -n to do that (with --slurm it runs as its own job).')
-            sys.exit(0)
+        print(f'{"Sample sheet OK. " if is_sheet else ""}Dry run stops here: the run would first '
+              f'{" and ".join(todo)}.\nRun without -n to do that (with --slurm it runs as its own job).')
+        sys.exit(0)
+    # a bowtie2 version is installed by the preparation job (--slurm), or here in a local run inside a job
+    bt2 = reference.missing_bowtie2(S['bowtie2'], args.refs)
+    if bt2 and (os.environ.get(CONTROLLER) == '1' or _on_login_node()):
+        sys.exit(f'First {bt2}: condense reference --bowtie2 {S["bowtie2"]}, in a Slurm job')
+    reference.ensure_bowtie2(S['bowtie2'], args.refs)
     try:
         cfg = _workflow_config(args, out)
     except sheet.SheetError as e:
@@ -280,6 +303,7 @@ def cmd_run(args):
            '--directory', str(out), '--rerun-incomplete']
     conf = [f'qc={args.qc}'] if args.qc else []
     conf += ['park=true'] if args.park and not is_sheet else []     # a sheet run has it in condense.yaml
+    conf += [f'refs={reference.refs_dir(args.refs)}'] if args.refs and not is_sheet else []
     cmd += ['--config', *conf] if conf else []
     if args.slurm:
         res = ['mem_mb=4000', 'runtime=120']
@@ -369,9 +393,11 @@ def main(argv=None):
     s.set_defaults(func=cmd_init)
 
     s = sub.add_parser('reference', help='download a genome (FASTA + bowtie2 index); run does this when needed')
-    s.add_argument('genomes', nargs='+', help=f'{", ".join(reference.PRESETS)}, or a FASTA file')
+    s.add_argument('genomes', nargs='*', help=f'{", ".join(reference.PRESETS)}, or a FASTA file')
     s.add_argument('--refs', help='where genomes are kept (default $CONDENSE_REFS, else ~/.cache/condense-calc)')
-    s.add_argument('--threads', type=int, default=1, help='for building an index (mm10, own FASTA)')
+    s.add_argument('--threads', type=int, default=1, help='for building an index (hg38_ucsc, own FASTA)')
+    s.add_argument('--bowtie2', metavar='VERSION',
+                   help='also install this bowtie2 version (a conda env in REFS/envs), e.g. 2.4.1 for --park')
     s.set_defaults(func=cmd_reference)
 
     s = sub.add_parser('run', help='run everything (the default command)',

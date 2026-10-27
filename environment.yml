@@ -12,7 +12,7 @@ dependencies:
   - sortedcontainers=2.4
   - matplotlib-base=3.9
   - pyyaml
-  - bowtie2=2.5
+  - bowtie2=2.5.5             # exact: versions can differ by a read in a few bins (2.4.1 for --park: settings)
   - samtools=1.21
   - aria2                 # get_reference.sh: 16 connections (encode-public gives ~0.35 MB/s per connection)
   - snakemake=8

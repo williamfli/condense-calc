@@ -343,7 +343,10 @@ def test_run_stops_on_unknown_setting(tmp_path, monkeypatch):
 
 
 def test_park_reaches_the_workflow(tmp_path, monkeypatch):
-    # a config run gets --config park=true; a sheet run has park: true in condense.yaml
+    # a config run gets --config park=true; a sheet run has park: true in condense.yaml (test_park_maps_hg38)
+    from condense_calc import reference
+    monkeypatch.setattr(reference, 'missing_bowtie2', lambda *a, **k: None)   # bowtie2 2.4.1 is there
+    monkeypatch.setattr(reference, 'ensure_bowtie2', lambda *a, **k: None)
     cmd = _local_cmd(tmp_path, monkeypatch, ['--cores', '1', '--park'], {})
     assert cmd[cmd.index('--config') + 1:cmd.index('--config') + 2] == ['park=true']
 
@@ -359,6 +362,8 @@ def _sheet_config(tmp_path, monkeypatch, extra, settings_text=None):
         extra = extra + ['--settings', str(tmp_path / 'settings.yaml')]
     monkeypatch.setattr(cli, '_check', lambda *a, **k: None)
     monkeypatch.setattr(reference, 'ensure', lambda g, *a, **k: (g, f'/refs/{g}/{g}.fa', f'/refs/{g}/{g}'))
+    monkeypatch.setattr(reference, 'missing_bowtie2', lambda *a, **k: None)   # --park: bowtie2 2.4.1 is there
+    monkeypatch.setattr(reference, 'ensure_bowtie2', lambda *a, **k: None)
     monkeypatch.setattr(cli.subprocess, 'call', lambda cmd, **k: 0)
     with pytest.raises(SystemExit):
         cli.main(['run', str(sh), '-o', str(tmp_path / 'out'), '--cores', '1', *extra])
@@ -432,3 +437,56 @@ def test_park_maps_hg38(tmp_path, monkeypatch):
     cfg = _sheet_config(tmp_path, monkeypatch, ['--park', '-g', 'mm10'])
     assert cfg['genome'] == 'mm10'                                  # Park's mouse reference is the default one
     assert _sheet_config(tmp_path, monkeypatch, [])['genome'] == 'hg38'
+
+
+def test_bowtie2_spec(tmp_path, monkeypatch):
+    from condense_calc import reference
+    assert reference.bowtie2_dir('bowtie2') is None and reference.missing_bowtie2('bowtie2', tmp_path) is None
+    env = tmp_path / 'envs/bowtie2-2.4.1'
+    assert reference.bowtie2_dir('2.4.1', tmp_path) == str(env / 'bin')
+    assert reference.missing_bowtie2('2.4.1', tmp_path).startswith('install bowtie2 2.4.1')
+    # install (subprocess mocked: nothing is installed); bioconda's 2.4.1 prints no version, conda-meta has it
+    calls = []
+
+    def run(cmd, **k):
+        calls.append(cmd)
+        if cmd[1] == 'create':
+            (env / 'bin').mkdir(parents=True)
+            (env / 'bin/bowtie2').touch()
+            (env / 'conda-meta').mkdir()
+            (env / 'conda-meta/bowtie2-2.4.1-py38h1c8e9b9_3.json').write_text('{"version": "2.4.1"}')
+        return type('R', (), {'stdout': f'{env}/bin/bowtie2-align-s version \n64-bit\n'})()
+    monkeypatch.setattr(reference.subprocess, 'run', run)
+    monkeypatch.setenv('MAMBA_EXE', '/x/mamba')
+    assert reference.ensure_bowtie2('2.4.1', tmp_path) == str(env / 'bin')
+    assert calls[0] == ['/x/mamba', 'create', '-y', '-q', '-p', str(env), '-c', 'conda-forge', '-c', 'bioconda',
+                        'bowtie2=2.4.1']
+    assert calls[1] == ['bowtie2', '--version'] and len(calls) == 2
+    assert reference.missing_bowtie2('2.4.1', tmp_path) is None
+    assert reference.bowtie2_dir(str(env)) == reference.bowtie2_dir(str(env / 'bin/bowtie2')) == str(env / 'bin')
+    with pytest.raises(SystemExit, match='no bowtie2 in'):
+        reference.missing_bowtie2(str(tmp_path / 'nothing/bowtie2'))
+
+
+def test_park_bowtie2_in_reference_job(tmp_path, monkeypatch):
+    # --park: bowtie2 2.4.1 is installed by the genome-preparation job, not on the login node or the controller
+    from condense_calc import cli, reference
+    sh = tmp_path / 'sheet.tsv'
+    sh.write_text('series\tconc\tfraction\tfastq\n')
+    for k in ('SLURM_JOB_ID', 'CONDENSE_CONTROLLER'):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setattr(cli, '_check', lambda *a, **k: None)
+    monkeypatch.setattr(reference, 'missing', lambda g, r=None: None)
+    monkeypatch.setattr(reference, 'missing_bowtie2', lambda s, r=None: None if s == 'bowtie2' else f'install {s}')
+    ids = iter(['111', '222'])
+    seen = []
+    monkeypatch.setattr(cli.subprocess, 'run',
+                        lambda cmd, **k: seen.append(cmd) or type('R', (), {'stdout': next(ids)})())
+    cli.main(['run', str(sh), '-o', str(tmp_path / 'out'), '--slurm', '--park'])
+    ref, ctl = seen
+    assert '--bowtie2 2.4.1' in ref[-1] and ref[-1].endswith('hg38_ucsc') and '--dependency=afterok:111' in ctl
+    # the controller itself never installs it
+    monkeypatch.setenv('SLURM_JOB_ID', '222')
+    monkeypatch.setenv('CONDENSE_CONTROLLER', '1')
+    with pytest.raises(SystemExit, match='First install 2.4.1'):
+        cli.main(['run', str(sh), '-o', str(tmp_path / 'out'), '--slurm', '--park'])
