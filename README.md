@@ -1,96 +1,75 @@
 # condense-calc
 
-Turns condense-seq reads (paired-end FASTQ) into condensability scores and a QC report.
-The processing is that of Park et al. 2025 (GEO GSE252941), with a few design fixes by default
-(see Settings). With `--park` it is Park's own processing; on test data the output is then identical
-to the authors' scripts.
+condense-calc turns condense-seq reads into condensability scores. You give it paired-end FASTQs of the input and the supernatants of a titration, with each concentration and its soluble fraction; it gives scores per 1 kb bin, 10 kb bin and nucleosome, c½ per 10 kb bin, and a QC report.
+It is based on the processing of Park & Ha, Nature, 2025, with a few design changes; `--park` reproduces their processing ([docs/park.md](docs/park.md)).
 
 ## Install
 
 ```bash
 git clone git@github.com:williamfli/condense-calc.git
-conda env create -f condense-calc/environment.yml     # installs everything, ~10 min
+conda env create -f condense-calc/environment.yml
+conda activate condense-calc
 ```
+
+## Your data
+
+Put both reads of every library in one folder. Read 2 has the name of read 1 with `_R2` for `_R1` (or `_2` for `_1`).
+
+```
+my_experiment/fastq/
+├── input_R1.fastq.gz      input_R2.fastq.gz
+├── sp8_L001_R1.fastq.gz   sp8_L001_R2.fastq.gz
+└── sp8_L002_R1.fastq.gz   sp8_L002_R2.fastq.gz
+```
+
+```bash
+cd my_experiment
+condense init fastq        # writes samples.tsv, one row per FASTQ: fill in series, conc and fraction
+```
+
+```
+series   conc    fraction  fastq
+H1_sp    0       1         fastq/input_R1.fastq.gz
+H1_sp    0.794   0.105     fastq/sp8_L001_R1.fastq.gz
+H1_sp    0.794   0.105     fastq/sp8_L002_R1.fastq.gz
+```
+
+- `series`: name of one titration (letters, digits, `_`, `-`). Each series needs an input row.
+- `conc`: concentration of the agent, any unit. 0 for the input.
+- `fraction`: soluble fraction measured at that concentration, not rounded. 1 for the input.
+- `fastq`: read-1 file. Rows with the same series and conc are lanes of one library.
+- Optional columns: `rep` (replicate number), `agent` (`Ca` scales nucleosome numbers by 5), `fastq2` (read-2 file).
 
 ## Run
 
 ```bash
-conda activate condense-calc
-condense init path/to/fastqs        # writes samples.tsv, one row per FASTQ
-# fill in the conc and fraction columns, then:
-condense samples.tsv                # results in results/ next to samples.tsv
+condense samples.tsv                                     # on this computer
+condense samples.tsv --slurm --account ACCOUNT --partition PARTITION --mail ADDRESS   # on a Slurm cluster
+condense samples.tsv -g mm10                             # mouse (default: -g hg38)
+condense samples.tsv -g genome.fa                        # another genome (FASTA file)
+condense samples.tsv --nucleosomes                       # a sheet of deep series: also a score per nucleosome
 ```
 
-On a Slurm cluster, add `--slurm` (and `--account`, `--partition` if needed). `condense` then
-submits itself as a small job, which runs each step as its own job, and returns; this also works
-from an interactive session (salloc, Open OnDemand), which can then be closed. `--mail ADDRESS`
-sends an email if the run fails. Without `--slurm`, `condense` runs on the machine it is started on,
-with the CPUs and memory it may use there (in a Slurm job: that job's allocation); on a cluster login
-node it stops and asks for `--slurm` (or `--cores N` to run there anyway).
-
-The first run downloads the genome (hg38 by default, ~7 GB, ~30 min) into `~/.cache/condense-calc`;
-with `--slurm` this, or building the index of `--genome FASTA`, runs as its own job first.
-To keep genomes elsewhere or share them, set `CONDENSE_REFS=/path/to/refs`.
-
-Re-running the same command resumes an interrupted run. `-n` checks the sample sheet and shows what
-would run (it does not download a genome).
-
-## Sample sheet
-
-```
-series   conc    fraction  fastq
-H1_sp    0       1         reads/input_R1.fastq.gz
-H1_sp    0.794   0.105     reads/sp8_L001_R1.fastq.gz
-H1_sp    0.794   0.105     reads/sp8_L002_R1.fastq.gz
-```
-
-| column | |
-|---|---|
-| `series` | one titration; each series needs an input row (`conc` 0) |
-| `conc` | agent concentration (any unit; used for the c½ fit) |
-| `fraction` | soluble fraction measured at that concentration (input: 1). It sets the score offset, −ln *fraction* |
-| `fastq` | read-1 file; read 2 is found by name (`_R1` → `_R2`, `_1.fastq` → `_2.fastq`). Wildcards work. Rows with the same series and conc are lanes of one library |
-| `rep` | optional: replicate number; replicates of a series are compared in the QC report |
-| `fastq2`, `agent` | optional: read-2 file if its name doesn't follow read 1; agent name (`Ca` scales nucleosome numbers by 5) |
+Rerun the same command to resume. The first run downloads the genome to `~/.cache/condense-calc` (set `CONDENSE_REFS` to use another folder).
 
 ## Results
 
-| file | |
+| file, in `results/` next to `samples.tsv` (or `-o FOLDER`) | |
 |---|---|
-| `tables/<series>_1kb_score.gtab.gz`, `_10kb_` | condensability score per bin, one column per concentration |
-| `tables/<series>_10kb_4PL.gtab.gz` | c½ per bin (series with ≥ 5 concentrations) |
-| `tables/<series>_score/` | per-nucleosome scores (with `--nucleosomes`) |
-| `qc/report.html` | QC figures; `qc/flags.tsv` lists values outside the expected range |
-| `bam/` | alignments; can be deleted afterwards |
+| `tables/<series>_10kb_score.gtab.gz`, `_1kb_` | score per bin, one column per concentration; higher is more condensable |
+| `tables/<series>_10kb_4PL.gtab.gz` | c½ per bin (series with 5 or more concentrations, input included) |
+| `tables/<series>_score/` | score per nucleosome, one file per chromosome (`--nucleosomes`) |
+| `qc/report.html` | QC report; `qc/flags.tsv` lists values outside the expected range |
+| `run_info.json` | settings, references and software versions of the run |
 
-Tables are gzipped tab-separated text, in the GEO format. Score for supernatant count *s* and input
-count *c* in a bin: −ln[(s+1)/Σ(s+1) ÷ (c+1)/Σ(c+1)] − ln *fraction*. Higher is more condensable.
+## Reproduce Park et al.
 
-## Options
+```bash
+condense fetch SRR31626986 SRR31626987 SRR31626988 SRR31626989 -o fastq   # e.g. H1 PEG rep 2, from NCBI SRA
+condense init fastq                                 # then fill in samples.tsv as above
+condense samples.tsv --park
+```
 
-| option | |
-|---|---|
-| `-g, --genome` | `hg38` (default; NCBI no-alt analysis set), `mm10` (ENCODE no-alt analysis set), `hg38_ucsc`, or a FASTA file (indexed on first use) |
-| `--park` | reproduce Park et al.'s GEO tables: their settings, UCSC hg38.fa for `hg38`, bowtie2 2.4.1. FASTQs: `condense fetch SRR... -o reads/` |
-| `--nucleosomes` | also score every nucleosome; for deeply sequenced series |
-| `--qc off\|default\|verbose` | QC report detail (verbose adds duplicates, GC, dinucleotide periodicity) |
-| `--slurm`, `--account`, `--partition` | run on Slurm |
-| `--mail ADDRESS` | Slurm: email if the run fails or reaches 80% of its time limit |
-| `-o` | output folder |
-| `--settings FILE` | YAML with the settings below |
+What it takes to get the GEO tables byte for byte: [docs/park.md](docs/park.md).
 
-Settings (`--park` or `park: true` gives Park's values; keys given explicitly override them):
-
-| key | default | `--park` |
-|---|---|---|
-| `reads: {min_mapq: 10}` | drops multi-mapping fragments (MAPQ < 10) | 0, no filter |
-| `score: {missing_as_nan: true}` | bins without input reads are NA rows | dropped |
-| `fastq_check` | `lite`: stop on SRA Lite reads (qualities all `?`) | `park`: also read names |
-| `bowtie2` | `bowtie2` (this environment's, 2.5.5) | `2.4.1`, installed once |
-| `bdata` | `false` | `false` |
-| `reads: {dedup: false}` | duplicates kept | same |
-| `bin_sizes` | `[1000, 10000]` | |
-| `threads` | 8 | bowtie2 threads per library |
-| `qc_thresholds` | see `qc/report.html` | e.g. `{min_replicate_rho: 0.7}` |
-
-More settings, multi-genome runs and the processing steps: [docs/details.md](docs/details.md).
+Settings, config files, steps, resources and tests: [docs/details.md](docs/details.md).
