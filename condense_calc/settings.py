@@ -8,6 +8,7 @@ from the defaults; in Park mode the stages also switch to Park's own behaviour w
 Keys the user gives explicitly override both.
 """
 import difflib
+import re
 
 DEFAULTS = {
     'park': False,
@@ -34,6 +35,19 @@ PARK = {
 
 # Park mode: the reference Park et al. used in place of a preset (reference.py; mm10 is already theirs)
 PARK_GENOMES = {'hg38': 'hg38_ucsc'}
+
+# Park mode, when `chroms` is not given: Park's driver (batch_submit_ver7.py:184-189) scores the female cells
+# GM (GM12878) and mCD8T (WT, DFMO, ODCKO) without chrY, the others (H1, E14) with it
+PARK_NO_CHRY = ('GM', 'mCD8T')
+
+
+def park_chroms(label, chroms):
+    """chroms without chrY if label is GM or mCD8T: a cell name, or a series name that starts with one
+    (GM_NCP_sp, mCD8T_WT_NCP_sp, mCD8T:DFMO)."""
+    if re.split(r'[_:-]', label)[0] in PARK_NO_CHRY:
+        return [c for c in chroms if c not in ('chrY', 'Y')]
+    return list(chroms)
+
 
 # keys that say what to run, not how: written by `condense` or given in a config file
 INPUTS = ('sheet', 'genome', 'genomes', 'nucleosomes', 'samples', 'titration_dir', 'cells', 'chroms', 'refs',

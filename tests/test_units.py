@@ -531,3 +531,12 @@ def test_sheet_run_stops_on_sra_lite(tmp_path, monkeypatch):
     (tmp_path / 'out/bam').mkdir()
     (tmp_path / 'out/bam/X_1.bam').touch()               # already aligned: not checked again
     cli._check(tmp_path / 's.tsv', 'lite', tmp_path / 'out')
+
+
+def test_park_chry_rule():
+    from condense_calc import settings
+    hs = [f'chr{i}' for i in range(1, 23)] + ['chrX', 'chrY']
+    for label in ('GM', 'GM_NCP_sp', 'mCD8T', 'mCD8T:WT', 'mCD8T_DFMO_NCP_sp', 'mCD8T-ODCKO'):
+        assert settings.park_chroms(label, hs) == hs[:-1], label
+    for label in ('H1', 'E14_NCP_sp', 'GMX', 'H1_GM'):
+        assert settings.park_chroms(label, hs) == hs, label

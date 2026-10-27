@@ -53,15 +53,20 @@ def default_chroms(fasta):
     return reference.default_chroms(fai)
 
 
-if 'sheet' in config:       # sample sheet (condense init); one genome
-    CELLS = {config['genome']: {'genome': config['genome'], 'chroms': config.get('chroms')}}
+if 'sheet' in config:       # sample sheet (condense init); one genome; each series counts as a cell
     SAMPLES = sheet.read_simple(P(config['sheet']), config['genome'],
                                 nucleosomes=config.get('nucleosomes', False))
+    SAMPLES['cell'] = SAMPLES['group']
+    CELLS = {c: {'genome': config['genome'], 'chroms': config.get('chroms')} for c in SAMPLES['cell']}
 else:                       # GEO-style config: samples + titration_dir + cells
     CELLS = {c: ({'genome': v} if isinstance(v, str) else dict(v)) for c, v in config['cells'].items()}
     SAMPLES = sheet.read_config_sheet(config['samples'], config.get('titration_dir', 'titration'), P)
-for v in CELLS.values():
-    v['chroms'] = list(v.get('chroms') or default_chroms(GENOMES[v['genome']]['fasta']))
+for c, v in CELLS.items():
+    if not v.get('chroms'):     # an explicit list always wins
+        v['chroms'] = default_chroms(GENOMES[v['genome']]['fasta'])
+        if SETTINGS['park']:    # Park's driver: GM and mCD8T without chrY
+            v['chroms'] = settings.park_chroms(c, v['chroms'])
+    v['chroms'] = list(v['chroms'])
 for c in sorted(set(SAMPLES['cell']) - set(CELLS)):
     raise ValueError(f'cell {c!r} is in the sample sheet but not under cells: in the config')
 S = SAMPLES.reset_index()
