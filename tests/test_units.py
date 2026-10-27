@@ -322,6 +322,16 @@ def test_settings_resolve_and_validate():
     import yaml
     S = settings.resolve(yaml.safe_load('fastq_check: off\nqc: off\n'))     # YAML reads a bare off as false
     assert S['fastq_check'] == 'off' and S['qc'] == 'off'
+    bad = [({'reads': {'min_mapq': 'ten'}}, 'reads.min_mapq must be an integer'),
+           ({'threads': 'eight'}, 'threads must be an integer'), ({'max_runtime': '1d'}, 'max_runtime must be an'),
+           ({'fit': {'min_rsq': 'high'}}, 'fit.min_rsq must be a number'), ({'mscale': {'Ca': 'x'}}, 'mscale.Ca'),
+           ({'bin_sizes': 1000}, 'bin_sizes must be a list'), ({'bin_sizes': [0]}, 'bin_sizes must be positive'),
+           ({'fit': {'model': 'logistic'}}, 'fit.model must be one of'),
+           ({'cells': {'GM': {'genome': 'hg38', 'chrom': ['chr1']}}}, "did you mean 'cells.GM.chroms'")]
+    for cfg, msg in bad:
+        with pytest.raises(settings.SettingsError, match=msg):
+            settings.resolve(cfg)
+    assert settings.resolve({'reads': {'min_mapq': '0'}})['reads']['min_mapq'] == 0      # --config gives text
 
 
 def test_stage_defaults_from_settings():

@@ -53,8 +53,12 @@ def park_chroms(label, chroms):
 INPUTS = ('sheet', 'genome', 'genomes', 'nucleosomes', 'samples', 'titration_dir', 'cells', 'chroms', 'refs',
           'align_threads')
 BOOLS = ('park', 'bdata', 'reads.dedup', 'score.missing_as_nan')
-CHOICES = {'qc': ('off', 'default', 'verbose'), 'fastq_check': ('off', 'lite', 'park')}
+INTS = ('trim_to', 'threads', 'max_runtime', 'reads.mm', 'reads.min_mapq', 'fit.bin_size', 'fit.min_tnum')
+FLOATS = ('fit.min_rsq',)               # and the values of the NAMED dicts
+CHOICES = {'qc': ('off', 'default', 'verbose'), 'fastq_check': ('off', 'lite', 'park'),
+           'fit.model': ('sigmoid', 'hill'), 'fit.method': ('evolution', 'curve_fit')}
 NAMED = ('mscale', 'qc_thresholds')     # dicts whose keys are names (agents, QC thresholds)
+CELL_KEYS = ('genome', 'chroms')        # of each entry under `cells:` in a config
 
 
 class SettingsError(ValueError):
@@ -77,6 +81,25 @@ def _bool(v, key):
     raise SettingsError(f'{key} must be true or false, not {v!r}')
 
 
+def _number(v, key, kind=float):
+    """v if it is an int (kind int) or a number (kind float); numbers written as text, as Snakemake's --config
+    gives nested values, are converted."""
+    if not isinstance(v, bool) and (isinstance(v, int) or (kind is float and isinstance(v, float))):
+        return v
+    if isinstance(v, str):
+        try:
+            return kind(v)
+        except ValueError:
+            pass
+    raise SettingsError(f'{key} must be {"an integer" if kind is int else "a number"}, not {v!r}')
+
+
+def _slot(out, key):
+    """(dict, key) that hold a setting, also a dotted one such as 'reads.min_mapq'."""
+    sec, _, k = key.rpartition('.')
+    return (out[sec] if sec else out), k
+
+
 def is_park(config):
     return _bool((config or {}).get('park', False), 'park')
 
@@ -94,6 +117,10 @@ def resolve(config=None, park=None):
     for key in user:
         if key not in DEFAULTS and key not in INPUTS:
             raise _unknown(key, sorted(DEFAULTS))
+    for c, v in (user.get('cells') or {}).items():
+        for k in (v if isinstance(v, dict) else ()):
+            if k not in CELL_KEYS:
+                raise _unknown(f'cells.{c}.{k}', [f'cells.{c}.{x}' for x in CELL_KEYS])
     mode = is_park(user)
     out = {}
     for key, default in DEFAULTS.items():
@@ -113,13 +140,24 @@ def resolve(config=None, park=None):
     out['park'] = mode
     out['bowtie2'] = str(out['bowtie2'])        # YAML reads 2.5 as a number
     for key in BOOLS:
-        sec, _, k = key.rpartition('.')
-        d = out[sec] if sec else out
+        d, k = _slot(out, key)
         d[k] = _bool(d[k], key)
     for key, choices in CHOICES.items():
-        out[key] = 'off' if out[key] is False else str(out[key]).lower()     # YAML reads a bare off as false
-        if out[key] not in choices:
-            raise SettingsError(f'{key} must be one of {", ".join(choices)}, not {out[key]!r}')
+        d, k = _slot(out, key)
+        d[k] = 'off' if d[k] is False else str(d[k]).lower()     # YAML reads a bare off as false
+        if d[k] not in choices:
+            raise SettingsError(f'{key} must be one of {", ".join(choices)}, not {d[k]!r}')
+    for key in INTS + FLOATS:
+        d, k = _slot(out, key)
+        d[k] = _number(d[k], key, int if key in INTS else float)
+    for sec in NAMED:
+        out[sec] = {k: _number(v, f'{sec}.{k}') for k, v in out[sec].items()}
+    b = out['bin_sizes']
+    if not isinstance(b, list) or not b:
+        raise SettingsError(f'bin_sizes must be a list of bin sizes in bp, e.g. [1000, 10000], not {b!r}')
+    out['bin_sizes'] = [_number(x, 'bin_sizes', int) for x in b]
+    if min(out['bin_sizes']) <= 0:
+        raise SettingsError(f'bin_sizes must be positive, not {b!r}')
     from .qc import THRESHOLDS
     for k in out['qc_thresholds']:
         if k not in THRESHOLDS:
