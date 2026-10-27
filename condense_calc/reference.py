@@ -87,7 +87,7 @@ def refs_dir(arg=None):
     return Path(arg or os.environ.get('CONDENSE_REFS') or Path.home() / '.cache' / 'condense-calc').expanduser()
 
 
-VERSION = re.compile(r'\d+(\.\d+)+')
+VERSION = re.compile(r'\d+\.\d+\.\d+')     # a bowtie2 version: in full, as conda's bowtie2=2.5 would install 2.5.5
 
 
 def bowtie2_dir(spec, refs=None):
@@ -96,6 +96,8 @@ def bowtie2_dir(spec, refs=None):
     spec = str(spec)
     if spec == 'bowtie2':
         return None
+    if re.fullmatch(r'[\d.]+', spec) and not VERSION.fullmatch(spec):
+        raise SystemExit(f'bowtie2 {spec}: give the full version, e.g. 2.4.1')
     if VERSION.fullmatch(spec):
         return str(refs_dir(refs) / 'envs' / f'bowtie2-{spec}' / 'bin')
     p = Path(spec).expanduser().resolve()

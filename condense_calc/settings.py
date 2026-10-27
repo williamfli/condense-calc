@@ -10,6 +10,8 @@ Keys the user gives explicitly override both.
 import difflib
 import re
 
+from .reference import VERSION
+
 DEFAULTS = {
     'park': False,
     'trim_to': 50,                      # reads are trimmed to this length before alignment
@@ -139,6 +141,9 @@ def resolve(config=None, park=None):
             out[key] = given if key in user else (preset if preset is not None else default)
     out['park'] = mode
     out['bowtie2'] = str(out['bowtie2'])        # YAML reads 2.5 as a number
+    if re.fullmatch(r'[\d.]+', out['bowtie2']) and not VERSION.fullmatch(out['bowtie2']):
+        raise SettingsError(f"bowtie2 must be a full version such as 2.4.1, not {out['bowtie2']} "
+                            "(YAML reads 2.10 as the number 2.1: write '2.10.0' or quote it)")
     for key in BOOLS:
         d, k = _slot(out, key)
         d[k] = _bool(d[k], key)

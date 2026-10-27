@@ -453,7 +453,8 @@ def test_park_maps_hg38(tmp_path, monkeypatch):
 
 
 def test_bowtie2_spec(tmp_path, monkeypatch):
-    from condense_calc import reference
+    import yaml
+    from condense_calc import reference, settings
     assert reference.bowtie2_dir('bowtie2') is None and reference.missing_bowtie2('bowtie2', tmp_path) is None
     env = tmp_path / 'envs/bowtie2-2.4.1'
     assert reference.bowtie2_dir('2.4.1', tmp_path) == str(env / 'bin')
@@ -479,6 +480,12 @@ def test_bowtie2_spec(tmp_path, monkeypatch):
     assert reference.bowtie2_dir(str(env)) == reference.bowtie2_dir(str(env / 'bin/bowtie2')) == str(env / 'bin')
     with pytest.raises(SystemExit, match='no bowtie2 in'):
         reference.missing_bowtie2(str(tmp_path / 'nothing/bowtie2'))
+    # a partial version would install 2.5.5 and then never match '2.5'
+    with pytest.raises(SystemExit, match='full version'):
+        reference.missing_bowtie2('2.5', tmp_path)
+    with pytest.raises(settings.SettingsError, match='full version'):
+        settings.resolve(yaml.safe_load('bowtie2: 2.10'))
+    assert settings.resolve(yaml.safe_load('bowtie2: 2.4.1'))['bowtie2'] == '2.4.1'
 
 
 def test_park_bowtie2_in_reference_job(tmp_path, monkeypatch):
