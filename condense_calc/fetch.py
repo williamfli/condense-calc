@@ -6,7 +6,8 @@ pass `fastq_check: park`: `condense fetch SRR... -o reads/`, then `condense samp
 titration at full precision, reproduces Park's GEO tables.
 Per run: prefetch (--verify yes; up to 4 tries, waiting 2, 4, 6 min), fasterq-dump, a check that both mates
 hold the run's spot count and real qualities, gzip (pigz if installed), then the .sra and temporary files are
-deleted. Writes OUT/<run>_1.fastq.gz and _2.fastq.gz; a run whose two files exist is skipped.
+deleted. Writes OUT/<run>_1.fastq.gz and _2.fastq.gz; a run whose two files exist (and pass the check) is
+skipped.
 """
 import re
 import shutil
@@ -42,6 +43,11 @@ def fetch(run, out, threads=1, sleep=time.sleep):
     out = Path(out)
     final = [out / f'{run}_{m}.fastq.gz' for m in (1, 2)]
     if all(f.exists() for f in final):
+        # ENA names its FASTQs the same way: check that these are ours (first 10,000 reads)
+        probs = fastq.problems([fastq.check_file(f, mate, 'park') for mate, f in enumerate(final, 1)])
+        if probs:
+            raise FetchError(f'{run}: {final[0].name} and {final[1].name} are already in {out}, but not in the form '
+                             'condense fetch writes (from ENA?). Move them away and run again.\n' + '\n'.join(probs))
         print(f'{run}: already there', flush=True)
         return final
     tmp = out / f'tmp_{run}'

@@ -631,6 +631,11 @@ def test_fetch_commands(tmp_path, monkeypatch):
     (tmp_path / 'tmp_SRR3').mkdir()
     (tmp_path / 'tmp_SRR3/SRR3_1.fastq.gz').write_bytes(b'partial')
     assert all(p.exists() for p in fetch.fetch('SRR3', tmp_path))
+    # files of the same names from ENA are not taken for ours
+    for m in (1, 2):
+        _fq(tmp_path / f'SRR4_{m}.fastq.gz', [f'@SRR4.1 VL1:1:F:1:1:1:1/{m}'], gz=True)
+    with pytest.raises(fetch.FetchError, match='Move them away'):
+        fetch.fetch('SRR4', tmp_path)
     spots['n'] = 4                                                      # fewer reads than the run's spots
     with pytest.raises(fetch.FetchError, match=r'\[3, 3\] reads .* 4 spots'):
         fetch.fetch('SRR2', tmp_path)
