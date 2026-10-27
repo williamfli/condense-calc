@@ -117,7 +117,7 @@ def resolve(config=None, park=None):
         d = out[sec] if sec else out
         d[k] = _bool(d[k], key)
     for key, choices in CHOICES.items():
-        out[key] = str(out[key]).lower()
+        out[key] = 'off' if out[key] is False else str(out[key]).lower()     # YAML reads a bare off as false
         if out[key] not in choices:
             raise SettingsError(f'{key} must be one of {", ".join(choices)}, not {out[key]!r}')
     from .qc import THRESHOLDS

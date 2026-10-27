@@ -319,6 +319,9 @@ def test_settings_resolve_and_validate():
         settings.resolve({'qc_thresholds': {'min_replicate_rh': 0.7}})
     with pytest.raises(settings.SettingsError, match='qc must be one of'):
         settings.resolve({'qc': 'full'})
+    import yaml
+    S = settings.resolve(yaml.safe_load('fastq_check: off\nqc: off\n'))     # YAML reads a bare off as false
+    assert S['fastq_check'] == 'off' and S['qc'] == 'off'
 
 
 def test_stage_defaults_from_settings():
