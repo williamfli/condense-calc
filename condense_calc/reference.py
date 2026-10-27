@@ -39,7 +39,8 @@ def default_chroms(fai):
     """Chromosomes processed when the settings name none, from a FASTA index (.fai).
 
     hg38, mm10 and assemblies like them (chromosomes named 1..N, X, Y, with or without 'chr', making up
-    >= 90% of the sequence): exactly those, in FASTA order, as in the GEO run. Any other genome
+    >= 90% of the sequence): exactly those, in the order 1..N, X, Y, as in the GEO tables (UCSC's hg38.fa lists
+    chr1, chr10, chr11, ...; the table rows follow this list). Any other genome
     (e.g. dm6 chr2L, yeast chrI-chrXVI, NCBI NC_ names): every sequence at least 1% as long as the
     longest one, except the mitochondrial genome; this leaves out small unplaced contigs.
     """
@@ -49,7 +50,10 @@ def default_chroms(fai):
     size = {n: int(length) for n, length in rows}
     canon = [n for n, _ in rows if CANONICAL.fullmatch(n)]
     if canon and sum(size[n] for n in canon) >= 0.9 * sum(size.values()):
-        return canon
+        def order(n):
+            c = CANONICAL.fullmatch(n).group(2)
+            return (0, int(c)) if c.isdigit() else (1, c)
+        return sorted(canon, key=order)
     longest = max(size.values())
     keep = [n for n, _ in rows if n not in MITO and size[n] >= 0.01 * longest]
     if not keep:

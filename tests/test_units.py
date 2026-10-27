@@ -239,6 +239,8 @@ def test_default_chroms(tmp_path):
     hg = [(f'chr{c}', 50_000_000) for c in list(range(1, 23)) + ['X', 'Y']]
     hg += [('chrM', 16_569), ('chrUn_KI270302v1', 2_274), ('chrEBV', 171_823)]
     assert default_chroms(_fai(tmp_path, hg)) == [n for n, _ in hg[:24]]          # as the GEO run
+    ucsc = sorted(hg[:24]) + hg[24:]                                              # UCSC hg38.fa: chr1, chr10, ...
+    assert default_chroms(_fai(tmp_path, ucsc)) == [n for n, _ in hg[:24]]
     dm6 = [('chr2L', 23_513_712), ('chr2R', 25_286_936), ('chr3L', 28_110_227), ('chr3R', 32_079_331),
            ('chr4', 1_348_131), ('chrX', 23_542_271), ('chrY', 3_667_352), ('chrM', 19_524),
            ('chrUn_DS483562v1', 1_001)]
