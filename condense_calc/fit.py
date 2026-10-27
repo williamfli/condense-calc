@@ -12,6 +12,9 @@ import numpy as np
 from scipy.optimize import curve_fit, differential_evolution
 
 from . import gtab
+from .settings import DEFAULTS
+
+FIT = DEFAULTS['fit']
 
 
 def sigmoid(x, top, rate, chalf, bottom):
@@ -30,7 +33,7 @@ def _sse(params, func, X, Y):
     return np.sum((func(X, *params) - Y) ** 2)
 
 
-def fit_table(path, titration, tnums, model='sigmoid', method='evolution', min_rsq=0.5,
+def fit_table(path, titration, tnums, model=FIT['model'], method=FIT['method'], min_rsq=FIT['min_rsq'],
               top=(1, 1), bottom=(0, 0), rate=(0, 100), chalf=(None, None), chroms=None):
     """Fit every row of a num table. tnums: the titration ID of each data column, in order.
     Bounds given as None are set as in the original (from the data). Returns (header, rows)."""

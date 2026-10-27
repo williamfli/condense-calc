@@ -275,3 +275,48 @@ def test_genome_prepared_in_own_job(tmp_path, monkeypatch):
     ref, ctl = seen
     assert 'reference' in ref[-1] and ref[ref.index('-c') + 1] == '8'
     assert '--dependency=afterok:111' in ctl and ctl[ctl.index('-c') + 1] == '1'
+
+
+def test_settings_resolve_and_validate():
+    from condense_calc import settings
+    S = settings.resolve({})
+    assert S == {**settings.DEFAULTS, 'park': False}
+    S = settings.resolve({'reads': {'dedup': 'true'}, 'align_threads': 24, 'samples': 'x.tsv', 'qc': 'OFF'})
+    assert S['reads'] == {**settings.DEFAULTS['reads'], 'dedup': True}      # merged one level deep
+    assert S['threads'] == 24 and S['qc'] == 'off'                          # earlier name of threads
+    assert settings.resolve({'park': 'true'})['park'] is True                # as Snakemake's --config park=true
+    with pytest.raises(settings.SettingsError, match="did you mean 'reads'"):
+        settings.resolve({'read': {'min_mapq': 10}})
+    with pytest.raises(settings.SettingsError, match="reads.min_mapqq"):
+        settings.resolve({'reads': {'min_mapqq': 10}})
+    with pytest.raises(settings.SettingsError, match='qc_thresholds.min_replicate_rh'):
+        settings.resolve({'qc_thresholds': {'min_replicate_rh': 0.7}})
+    with pytest.raises(settings.SettingsError, match='qc must be one of'):
+        settings.resolve({'qc': 'full'})
+
+
+def test_stage_defaults_from_settings():
+    import argparse
+    from condense_calc import cli, settings
+    a = argparse.Namespace(park=False, mm=None, min_mapq=None, dedup=None, missing_as_nan=True)
+    cli._stage_defaults(a)
+    R = settings.DEFAULTS['reads']
+    assert (a.mm, a.min_mapq, a.dedup) == (R['mm'], R['min_mapq'], R['dedup'])
+    assert a.missing_as_nan is True                                          # given: kept
+
+
+def test_run_stops_on_unknown_setting(tmp_path, monkeypatch):
+    from condense_calc import cli
+    cfg = tmp_path / 'config.yaml'
+    cfg.write_text('reads: {min_mapq: 10}\nbin_size: [1000]\n')
+    monkeypatch.setattr(cli.subprocess, 'call', lambda *a, **k: pytest.fail('started'))
+    with pytest.raises(SystemExit) as e:
+        cli.main(['run', str(cfg), '-o', str(tmp_path / 'out'), '--cores', '1'])
+    assert "unknown setting 'bin_size'; did you mean 'bin_sizes'?" in str(e.value.code)
+    assert not (tmp_path / 'out').exists()
+
+
+def test_park_reaches_the_workflow(tmp_path, monkeypatch):
+    # a config run gets --config park=true; a sheet run has park: true in condense.yaml
+    cmd = _local_cmd(tmp_path, monkeypatch, ['--cores', '1', '--park'], {})
+    assert cmd[cmd.index('--config') + 1:cmd.index('--config') + 2] == ['park=true']

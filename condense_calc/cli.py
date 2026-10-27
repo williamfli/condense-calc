@@ -18,7 +18,7 @@ from pathlib import Path
 import pysam
 import yaml
 
-from . import counts, fit, fragments, gtab, qc, reference, score, sheet, titration
+from . import counts, fit, fragments, gtab, qc, reference, score, settings, sheet, titration
 
 PKG = Path(__file__).resolve().parent
 
@@ -151,6 +151,15 @@ def _check(src):
         sheet.read_simple(src, 'check', workdir=tmp)
 
 
+def _user_settings(args, src):
+    """The user's settings: a config file's own keys, or the --settings file of a sample-sheet run; plus --park."""
+    path = src if src.suffix in ('.yaml', '.yml') else (Path(args.settings) if args.settings else None)
+    cfg = (yaml.safe_load(path.read_text()) or {}) if path else {}
+    if args.park:
+        cfg['park'] = True
+    return cfg
+
+
 def _workflow_config(args, out):
     """Config for the workflow; a sample sheet becomes condense.yaml in the output folder."""
     src = Path(args.sheet).resolve()
@@ -158,7 +167,7 @@ def _workflow_config(args, out):
         return src
     _check(src)                                                      # fail early, before any job starts
     name, fasta, index = reference.ensure(args.genome, args.refs, _local_cores(args))
-    cfg = yaml.safe_load(Path(args.settings).read_text()) if args.settings else {}
+    cfg = _user_settings(args, src)
     cfg.update(sheet=str(src), genome=name, genomes={name: {'fasta': fasta, 'bowtie2_index': index}},
                nucleosomes=args.nucleosomes)
     path = out / 'condense.yaml'
@@ -229,9 +238,13 @@ def cmd_run(args):
     src = Path(args.sheet).resolve()
     if not src.exists():
         sys.exit(f'{args.sheet} not found')
+    is_sheet = src.suffix not in ('.yaml', '.yml')
+    try:
+        settings.resolve(_user_settings(args, src))                 # unknown keys: stop before anything starts
+    except (settings.SettingsError, OSError, yaml.YAMLError) as e:
+        sys.exit(f'settings: {e}')
     out = Path(args.outdir).resolve() if args.outdir else src.parent / 'results'
     out.mkdir(parents=True, exist_ok=True)
-    is_sheet = src.suffix not in ('.yaml', '.yml')
     # --slurm submits a controller job, also from an interactive (salloc / Open OnDemand) session: run in
     # the foreground there, the workflow would die with the session
     if args.slurm and not args.dry_run and os.environ.get(CONTROLLER) != '1':
@@ -261,8 +274,9 @@ def cmd_run(args):
         sys.exit(str(e))
     cmd = ['snakemake', '-s', str(PKG / 'workflow' / 'Snakefile'), '--configfile', str(cfg),
            '--directory', str(out), '--rerun-incomplete']
-    if args.qc:
-        cmd += ['--config', f'qc={args.qc}']
+    conf = [f'qc={args.qc}'] if args.qc else []
+    conf += ['park=true'] if args.park and not is_sheet else []     # a sheet run has it in condense.yaml
+    cmd += ['--config', *conf] if conf else []
     if args.slurm:
         res = ['mem_mb=4000', 'runtime=120']
         res += [f'slurm_account={args.account}'] if args.account else []
@@ -324,6 +338,20 @@ def cmd_qc_report(args):
         print(f"QC {f['level']}: {f['name']}: {f['metric']} = {v} ({f['threshold']})")
 
 
+# stage option -> (settings section, key)
+STAGE_DEFAULTS = {'mm': ('reads', 'mm'), 'min_mapq': ('reads', 'min_mapq'), 'dedup': ('reads', 'dedup'),
+                  'missing_as_nan': ('score', 'missing_as_nan'),
+                  'model': ('fit', 'model'), 'method': ('fit', 'method'), 'min_rsq': ('fit', 'min_rsq')}
+
+
+def _stage_defaults(args):
+    """Stage options not given on the command line take the settings' value (with --park, the Park preset's)."""
+    S = settings.resolve(park=getattr(args, 'park', False))
+    for dest, (sec, key) in STAGE_DEFAULTS.items():
+        if getattr(args, dest, 0) is None:
+            setattr(args, dest, S[sec][key])
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog='condense', description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -352,6 +380,8 @@ def main(argv=None):
                    help='also score every nucleosome (for deeply sequenced series; slower)')
     s.add_argument('--qc', choices=['off', 'default', 'verbose'], help='QC level (default: default)')
     s.add_argument('--settings', help='YAML file with further settings (see README)')
+    s.add_argument('--park', action='store_true',
+                   help='reproduce the GEO tables of Park et al. 2025: their processing (settings `park: true`)')
     s.add_argument('--cores', type=int,
                    help='local run: cores to use (default: the CPUs this process may use, e.g. a job\'s allocation)')
     s.add_argument('--slurm', action='store_true', help='submit each step as a Slurm job')
@@ -365,14 +395,20 @@ def main(argv=None):
     s.add_argument('-n', '--dry-run', action='store_true', help='show what would run')
     s.set_defaults(func=cmd_run)
 
+    # stage options left out take their value from settings.py (with --park: the Park preset), see _stage_defaults
+    def park(sp):
+        sp.add_argument('--park', action='store_true',
+                        help="Park et al. 2025's processing: the Park preset's defaults and Park's behaviour")
+
     def reads(sp):
         sp.add_argument('--bam', required=True)
         sp.add_argument('--label', help='column name (default: BAM file name up to the first dot)')
-        sp.add_argument('--mm', type=int, default=10, help='max edit distance NM (default 10, as GEO)')
-        sp.add_argument('--min-mapq', type=int, default=0,
-                        help='MAPQ filter; 0 = none, as the original (departure if > 0)')
-        sp.add_argument('--dedup', action='store_true',
-                        help='drop duplicate fragments (departure; the original keeps them)')
+        sp.add_argument('--mm', type=int, help=f"max edit distance NM ({settings.describe('reads', 'mm')})")
+        sp.add_argument('--min-mapq', type=int,
+                        help=f"minimum MAPQ, 0 = none ({settings.describe('reads', 'min_mapq')})")
+        sp.add_argument('--dedup', action=argparse.BooleanOptionalAction,
+                        help=f"drop duplicate fragments ({settings.describe('reads', 'dedup')})")
+        park(sp)
 
     s = sub.add_parser('bincount', help='reads per genomic bin (bincount_ver3.py)')
     reads(s)
@@ -416,8 +452,10 @@ def main(argv=None):
     s.add_argument('--titration', help='titration table; omit for no survival-fraction correction')
     s.add_argument('--tnum', type=int)
     s.add_argument('--chroms', nargs='+')
-    s.add_argument('--missing-as-nan', action='store_true',
-                   help='write bins without input reads as NA instead of dropping them (departure)')
+    s.add_argument('--missing-as-nan', action=argparse.BooleanOptionalAction,
+                   help='write bins without input reads as NA rows instead of dropping them '
+                        f"({settings.describe('score', 'missing_as_nan')})")
+    park(s)
     s.add_argument('-o', '--out', nargs='+', required=True)
     s.set_defaults(func=cmd_score)
 
@@ -427,11 +465,13 @@ def main(argv=None):
     s.add_argument('--tnum', type=int, required=True)
     s.add_argument('--mscale', type=float, default=1)
     s.add_argument('--chroms', nargs='+')
+    park(s)
     s.add_argument('-o', '--out', nargs='+', required=True)
     s.set_defaults(func=cmd_num)
 
     s = sub.add_parser('concat', help='outer join of gtabs (concat_gtab.py)')
     s.add_argument('--inputs', nargs='+', required=True)
+    park(s)
     s.add_argument('-o', '--out', required=True)
     s.set_defaults(func=cmd_concat)
 
@@ -439,18 +479,20 @@ def main(argv=None):
     s.add_argument('--input', required=True)
     s.add_argument('--titration', required=True)
     s.add_argument('--tnums', type=int, nargs='+', required=True)
-    s.add_argument('--model', default='sigmoid', choices=sorted(fit.MODELS))
-    s.add_argument('--method', default='evolution', choices=['evolution', 'curve_fit'])
-    s.add_argument('--min-rsq', type=float, default=0.5)
+    s.add_argument('--model', choices=sorted(fit.MODELS), help=settings.describe('fit', 'model'))
+    s.add_argument('--method', choices=['evolution', 'curve_fit'], help=settings.describe('fit', 'method'))
+    s.add_argument('--min-rsq', type=float, help=settings.describe('fit', 'min_rsq'))
     s.add_argument('--chroms', nargs='+')
+    park(s)
     s.add_argument('-o', '--out', required=True)
     s.set_defaults(func=cmd_fit)
 
     s = sub.add_parser('qc-sample', help='QC: alignment, read filters and fragment lengths of one BAM')
     s.add_argument('--bam', required=True)
     s.add_argument('--bowtie2-log', required=True)
-    s.add_argument('--mm', type=int, default=10)
-    s.add_argument('--min-mapq', type=int, default=0)
+    s.add_argument('--mm', type=int, help=settings.describe('reads', 'mm'))
+    s.add_argument('--min-mapq', type=int, help=settings.describe('reads', 'min_mapq'))
+    park(s)
     s.add_argument('--threads', type=int, default=1)
     s.add_argument('--verbose', action='store_true')
     s.add_argument('-o', '--out', required=True)
@@ -493,6 +535,7 @@ def main(argv=None):
         argv = ['run'] + argv                                         # `condense SHEET` = `condense run SHEET`
     args = p.parse_args(argv)
     args.snakemake_args = extra
+    _stage_defaults(args)
     args.func(args)
 
 

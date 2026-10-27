@@ -19,6 +19,10 @@ from dataclasses import dataclass
 import numpy as np
 import pysam
 
+from .settings import DEFAULTS
+
+READS = DEFAULTS['reads']
+
 
 @dataclass
 class Fragments:
@@ -76,7 +80,7 @@ def _ref_span(cigartuples):
     return sum(n for op, n in cigartuples if op in (0, 2))
 
 
-def read_bam(path, chroms, mm_cutoff=10, min_mapq=0, dedup=False):
+def read_bam(path, chroms, mm_cutoff=READS['mm'], min_mapq=READS['min_mapq'], dedup=READS['dedup']):
     """Return {chrom: Fragments} for the chromosomes in `chroms` (None = all)."""
     want = set(chroms) if chroms else None
     acc = {}

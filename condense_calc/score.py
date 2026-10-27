@@ -8,6 +8,7 @@ Ports (external/condense-seq/prepro_scripts, a8d2dd8):
 import math
 
 from . import gtab
+from .settings import DEFAULTS
 
 INPUT_MOLECULES = 1.6e12            # NCPnum_ver2.py: input_mnum = mscale * 1.6e12
 AGENT_MSCALE = {'sp': 1, 'spd': 1, 'CoH': 1, 'PEG': 1, 'Ca': 5, 'HP1a': 1, 'HP1bSUV': 1}  # batch_submit_ver7.py
@@ -19,7 +20,7 @@ def _keyed(table):
     return {gtab.point_key(r[0], *[int(v) for v in r[1:nk]]): r for r in table.rows}
 
 
-def score(pairs, survival_fraction=None, chroms=None, missing_as_nan=False):
+def score(pairs, survival_fraction=None, chroms=None, missing_as_nan=DEFAULTS['score']['missing_as_nan']):
     """Condensability scores of one titration point.
 
     pairs: list of (test_path, control_path) gtabs (one pair for a bin table; one per

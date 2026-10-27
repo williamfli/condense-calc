@@ -20,26 +20,25 @@ shell.prefix(f'export PYTHONPATH={PKG_PARENT}:$PYTHONPATH; set -euo pipefail; ')
 CLI = 'python -m condense_calc'
 
 # ---------------------------------------------------------------- settings
-# Defaults reproduce the processing of the Park et al. 2025 GEO tables (GSE252941).
-cfg = lambda key, default: config.get(key, default)
-TRIM = cfg('trim_to', 50)
-THREADS = cfg('threads', cfg('align_threads', 8))
-BINS = [int(b) for b in cfg('bin_sizes', [1000, 10000])]
-KB = {b: f'{b // 1000}kb' for b in BINS}
-MSCALE = {'Ca': 5, **cfg('mscale', {})}
-FIT = {'bin_size': 10000, 'min_tnum': 5, 'model': 'sigmoid', 'method': 'evolution', 'min_rsq': 0.5,
-       **cfg('fit', {})}
-READS = {'mm': 10, 'min_mapq': 0, 'dedup': False, **cfg('reads', {})}
-READ_OPTS = (f"--mm {READS['mm']} --min-mapq {READS['min_mapq']}" + (' --dedup' if READS['dedup'] else ''))
-NAN_OPT = '--missing-as-nan' if cfg('score', {}).get('missing_as_nan', False) else ''
-QC = str(cfg('qc', 'default')).lower()
-assert QC in ('off', 'default', 'verbose'), f'qc must be off, default or verbose, not {QC!r}'
-
-# ---------------------------------------------------------------- genomes and samples
+# Defaults and the Park preset (`park: true`) are in condense_calc/settings.py; unknown keys are an error.
 import sys
 sys.path.insert(0, str(PKG_PARENT))
-from condense_calc import reference, sheet
+from condense_calc import reference, settings, sheet
 
+SETTINGS = settings.resolve(config)
+TRIM = SETTINGS['trim_to']
+THREADS = SETTINGS['threads']
+BINS = [int(b) for b in SETTINGS['bin_sizes']]
+KB = {b: f'{b // 1000}kb' for b in BINS}
+MSCALE = SETTINGS['mscale']
+FIT = SETTINGS['fit']
+READS = SETTINGS['reads']
+# every option is passed explicitly, so the stages' own defaults do not matter here
+READ_OPTS = (f"--mm {READS['mm']} --min-mapq {READS['min_mapq']}" + (' --dedup' if READS['dedup'] else ' --no-dedup'))
+NAN_OPT = '--missing-as-nan' if SETTINGS['score']['missing_as_nan'] else '--no-missing-as-nan'
+QC = SETTINGS['qc']
+
+# ---------------------------------------------------------------- genomes and samples
 GENOMES = {g: {'fasta': P(v['fasta']), 'bowtie2_index': P(v['bowtie2_index'])}
            for g, v in config['genomes'].items()}
 
@@ -58,7 +57,7 @@ if 'sheet' in config:       # sample sheet (condense init); one genome
                                 nucleosomes=config.get('nucleosomes', False))
 else:                       # GEO-style config: samples + titration_dir + cells
     CELLS = {c: ({'genome': v} if isinstance(v, str) else dict(v)) for c, v in config['cells'].items()}
-    SAMPLES = sheet.read_config_sheet(config['samples'], cfg('titration_dir', 'titration'), P)
+    SAMPLES = sheet.read_config_sheet(config['samples'], config.get('titration_dir', 'titration'), P)
 for v in CELLS.values():
     v['chroms'] = list(v.get('chroms') or default_chroms(GENOMES[v['genome']]['fasta']))
 for c in sorted(set(SAMPLES['cell']) - set(CELLS)):
@@ -129,7 +128,7 @@ rule all:
     input: final_outputs()
 
 
-MAX_RUNTIME = int(cfg('max_runtime', 3 * 24 * 60))     # minutes; the time limit of shared/sapphire
+MAX_RUNTIME = int(SETTINGS['max_runtime'])     # minutes; default: the time limit of shared/sapphire
 
 
 def rt(minutes, attempt):
@@ -327,7 +326,7 @@ rule qc_report:
         series=[f'qc/series/{s}.json' for s in SERIES],
         reps=[f'qc/replicates/{g}.json' for g in REP_GROUPS],
     output: html='qc/report.html', summary='qc/summary.tsv', flags='qc/flags.tsv'
-    params: thresholds=lambda w: ' '.join(f'{k}={v}' for k, v in cfg('qc_thresholds', {}).items())
+    params: thresholds=lambda w: ' '.join(f'{k}={v}' for k, v in SETTINGS['qc_thresholds'].items())
     resources: mem_mb=1000, runtime=lambda w, attempt: rt(10, attempt)
     shell:
         f'{CLI} qc-report --samples {{input.samples}} --series {{input.series}} '
