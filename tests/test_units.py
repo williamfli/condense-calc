@@ -299,8 +299,18 @@ def test_genome_prepared_in_own_job(tmp_path, monkeypatch):
                         lambda cmd, **k: seen.append(cmd) or type('R', (), {'stdout': next(ids)})())
     cli.main(['run', str(sh), '-o', str(tmp_path / 'out'), '--slurm'])
     ref, ctl = seen
-    assert 'reference' in ref[-1] and ref[ref.index('-c') + 1] == '8'
-    assert '--dependency=afterok:111' in ctl and ctl[ctl.index('-c') + 1] == '1'
+    opt = lambda cmd, o: cmd[cmd.index(o) + 1]
+    assert 'reference' in ref[-1] and opt(ref, '-c') == '1' and opt(ref, '-t') == '0-12:00'    # hg38: a download
+    assert '--dependency=afterok:111' in ctl and opt(ctl, '-c') == '1'
+    # an index to build (hg38_ucsc, or a FASTA): 8 cores
+    seen.clear()
+    ids = iter(['111', '222'])
+    cli.main(['run', str(sh), '-o', str(tmp_path / 'out'), '--slurm', '-g', 'hg38_ucsc'])
+    assert opt(seen[0], '-c') == '8' and opt(seen[0], '--mem') == '32G' and '--threads 8' in seen[0][-1]
+    # and not on a login node by hand
+    monkeypatch.setattr(cli, '_on_login_node', lambda: True)
+    with pytest.raises(SystemExit, match='not light work'):
+        cli.main(['reference', 'hg38_ucsc'])
 
 
 def test_settings_resolve_and_validate():
@@ -505,6 +515,7 @@ def test_park_bowtie2_in_reference_job(tmp_path, monkeypatch):
     cli.main(['run', str(sh), '-o', str(tmp_path / 'out'), '--slurm', '--park'])
     ref, ctl = seen
     assert '--bowtie2 2.4.1' in ref[-1] and ref[-1].endswith('hg38_ucsc') and '--dependency=afterok:111' in ctl
+    assert ref[ref.index('-c') + 1] == '1' and ref[ref.index('-t') + 1] == '0-02:00'    # only a conda install
     # the controller itself never installs it
     monkeypatch.setenv('SLURM_JOB_ID', '222')
     monkeypatch.setenv('CONDENSE_CONTROLLER', '1')

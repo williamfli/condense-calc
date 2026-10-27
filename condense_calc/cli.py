@@ -162,6 +162,11 @@ def cmd_fetch(args):
 def cmd_reference(args):
     if not args.genomes and not args.bowtie2:
         sys.exit('nothing to do: name a genome, or give --bowtie2 VERSION')
+    build = [g for g in args.genomes if reference.builds_index(g, args.refs)]
+    if build and _on_login_node():
+        sys.exit(f'Building a bowtie2 index ({", ".join(build)}) takes hours: not light work for a login node. '
+                 f"Run it in a job, e.g. sbatch -c 8 --mem 32G -t 0-12:00 --wrap 'condense reference "
+                 f"{' '.join(args.genomes)} --threads 8'")
     for g in args.genomes:
         print('\t'.join(reference.ensure(g, args.refs, args.threads)))
     if args.bowtie2 and reference.missing_bowtie2(args.bowtie2, args.refs) and _on_login_node():
@@ -268,18 +273,21 @@ def _sbatch(args, cmd):
 
 def _submit_controller(args, out, S):
     """Run this command as a small Slurm job that submits and watches the steps. A genome that still has
-    to be downloaded or indexed, or a bowtie2 version to install, is prepared first in its own job (8 cores),
-    which the controller waits for."""
+    to be downloaded or indexed, or a bowtie2 version to install, is prepared first in its own job (8 cores
+    only to build an index), which the controller waits for."""
     dep = []
     is_sheet = Path(args.sheet).suffix not in ('.yaml', '.yml')
     todo = _todo(args, S, is_sheet)
     if todo:
-        ref = [sys.executable, '-m', 'condense_calc', 'reference', '--threads', '8', '--bowtie2', S['bowtie2']]
+        # bowtie2-build of a mammalian genome: ~1-2 h on 8 cores, < 16 GB. A download or a conda install: 1 core
+        build = is_sheet and reference.builds_index(args.genome, args.refs)
+        genome = is_sheet and reference.missing(args.genome, args.refs)
+        cores, mem, time = ('8', '32G', '0-12:00') if build else ('1', '8G', '0-12:00' if genome else '0-02:00')
+        ref = [sys.executable, '-m', 'condense_calc', 'reference', '--threads', cores, '--bowtie2', S['bowtie2']]
         if is_sheet:
             ref.append(str(reference.locate(args.genome)[1]) if args.genome not in reference.PRESETS else args.genome)
         ref += ['--refs', args.refs] if args.refs else []
-        # bowtie2-build of a mammalian genome: ~1-2 h on 8 cores, < 16 GB
-        rjob = _sbatch(args, ['sbatch', '-J', 'condense-reference', '-c', '8', '--mem', '32G', '-t', '0-12:00',
+        rjob = _sbatch(args, ['sbatch', '-J', 'condense-reference', '-c', cores, '--mem', mem, '-t', time,
                               '-o', str(out / 'condense_reference_%j.log'), '--wrap', shlex.join(ref)])
         print(f'Submitted job {rjob} to {" and ".join(todo)}; the run starts when it is done.')
         dep = [f'--dependency=afterok:{rjob}', '--kill-on-invalid-dep=yes']

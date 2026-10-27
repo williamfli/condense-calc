@@ -23,7 +23,7 @@ PRESETS = {
     'mm10': {'name': 'ENCODE mm10 no-alt analysis set (ENCFF309GLL)', 'contigs': 66,
              'fingerprint': '1a3951070d28838887ce0c77dc27c2e3'},
     'hg38_ucsc': {'name': 'UCSC hg38.fa with alt haplotypes', 'contigs': 455,
-                  'fingerprint': '65b2bdfb1382e0a8a219be9c04a8f1a7'},
+                  'fingerprint': '65b2bdfb1382e0a8a219be9c04a8f1a7', 'build': True},    # no prebuilt index
 }
 PARK = ('hg38_ucsc', 'mm10')            # the references Park et al. used
 # sequence sets met before under a preset's name
@@ -175,9 +175,17 @@ def missing(genome, refs=None):
     _check_preset(genome, fasta)
     if Path(f'{fasta}.fai').exists() and _index_ok(index):
         return None
-    if genome in PRESETS:
+    if genome in PRESETS and not PRESETS[genome].get('build'):
         return f'download {genome} (FASTA and bowtie2 index) into {fasta.parent}'
+    if genome in PRESETS:
+        return f'download {genome} and build its bowtie2 index in {fasta.parent} (hours)'
     return f'build the bowtie2 index {index} (large genomes take hours)'
+
+
+def builds_index(genome, refs=None):
+    """True if preparing the genome includes bowtie2-build (hours, 8 threads): hg38_ucsc, or a FASTA without an
+    index. The other presets come with an index."""
+    return bool(missing(genome, refs)) and (genome not in PRESETS or PRESETS[genome].get('build', False))
 
 
 def ensure(genome, refs=None, threads=1):
