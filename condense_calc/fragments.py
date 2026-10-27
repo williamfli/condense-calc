@@ -49,27 +49,39 @@ class Fragments:
         stop = np.where(right, self.end, self.pos + self.tlen)
         return start, stop
 
-    def dyad_bincount(self):
+    # Fragment centres. Default: from the fragment interval [start, start + L), L = |tlen|.
+    # park=True: the original's formulas, which put the centre of an odd-length fragment counted from its
+    # right-hand read (tlen < 0) one base left of the true centre (end + tlen/2 - 1, Python 2 `/` flooring).
+    # bowtie2 end-to-end proper pairs never give the forward read tlen < 0, so both agree on its output.
+
+    def dyad_bincount(self, park=False):
         """Fragment centre as bincount_ver3.py assigns it (one position, weight 1).
-        Even lengths go to the left of the two centre bases. Python 2 `/` on ints floors,
-        which is `//` here, also for negative tlen."""
+        Even lengths go to the left of the two centre bases."""
         t = self.tlen
+        if not park:
+            start, _ = self.interval()
+            return start + (np.abs(t) - 1) // 2
         left = t > 0
         d_left = np.where(t % 2 != 0, self.pos + t // 2, self.pos + t // 2 - 1)
         d_right = self.end + t // 2 - 1
         return np.where(left, d_left, d_right)
 
-    def dyad_split(self):
+    def dyad_split(self, park=False):
         """Fragment centre as NCPpeak_ver3.py assigns it: odd lengths give one position
         with weight 1; even lengths split 0.5/0.5 over the two centre bases.
         Returns (positions, weights), both 1-D, possibly longer than the input."""
         t = self.tlen
-        left = t > 0
         odd = t % 2 != 0
-        base = np.where(left, self.pos + t // 2, self.end + t // 2)
-        # odd: left -> pos + t//2 ; right -> end + t//2 - 1
-        p_odd = np.where(left, base, base - 1)[odd]
-        # even: left -> (pos + t//2 - 1, pos + t//2) ; right -> (end + t//2 - 1, end + t//2)
+        if not park:
+            start, _ = self.interval()
+            base = start + np.abs(t) // 2
+            p_odd = base[odd]
+        else:
+            left = t > 0
+            base = np.where(left, self.pos + t // 2, self.end + t // 2)
+            # odd: left -> pos + t//2 ; right -> end + t//2 - 1
+            p_odd = np.where(left, base, base - 1)[odd]
+        # even: (base - 1, base), i.e. left -> (pos + t//2 - 1, pos + t//2) ; right -> (end + t//2 - 1, end + t//2)
         b_even = base[~odd]
         pos = np.concatenate([p_odd, b_even - 1, b_even])
         w = np.concatenate([np.ones(len(p_odd)), np.full(2 * len(b_even), 0.5)])

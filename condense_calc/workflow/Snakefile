@@ -175,7 +175,7 @@ rule bincount:
         runtime=lambda w, input, attempt: rt(mb([input.bam], 0.02, 60), attempt),
     shell:
         f'{CLI} bincount --bam {{input.bam}} --fasta {{params.fasta}} --chroms {{params.chroms}} '
-        f'--win {{params.win}} {READ_OPTS} -o {{output}}'
+        f'--win {{params.win}} {READ_OPTS} {PARK_OPT} -o {{output}}'
 
 rule score_bin:
     input:

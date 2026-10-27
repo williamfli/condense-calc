@@ -42,7 +42,7 @@ def cmd_bincount(args):
     chroms = gtab.sort_chroms(args.chroms)
     frags = _read(args, chroms)
     gc = counts.gc_content(args.fasta, chroms, args.win) if args.gc else None
-    rows = counts.bincount(frags, sizes, chroms, args.win, gc=gc, tlen=args.tlen)
+    rows = counts.bincount(frags, sizes, chroms, args.win, gc=gc, tlen=args.tlen, park=args.park)
     header = ['Chromosome', 'Start', 'End', args.label or label_of(args.bam)]
     header += (['GCcontent'] if args.gc else []) + (['Meantlen'] if args.tlen else [])
     gtab.write(args.out, header, rows)

@@ -15,11 +15,17 @@ def F(rows):
 
 def test_dyad_rules():
     # left read, odd 147: centre at pos + 73; even 148: left of the two centre bases
-    # right read (tlen < 0), odd -147: end + (-74) - 1
-    f = F([[100, 150, 147], [100, 150, 148], [250, 300, -147]])
-    assert list(f.dyad_bincount()) == [173, 173, 225]
+    # right read (tlen < 0), odd -147, fragment [153, 300): centre 226; Park: end + (-74) - 1 = 225
+    # right read, even -148, fragment [152, 300): left centre base 225, split 225/226, in both modes
+    f = F([[100, 150, 147], [100, 150, 148], [250, 300, -147], [252, 300, -148]])
+    assert list(f.dyad_bincount()) == [173, 173, 226, 225]
+    assert list(f.dyad_bincount(park=True)) == [173, 173, 225, 225]
     pos, w = f.dyad_split()
-    assert sorted(zip(pos.tolist(), w.tolist())) == [(173, 0.5), (173, 1.0), (174, 0.5), (225, 1.0)]
+    assert sorted(zip(pos.tolist(), w.tolist())) == \
+        [(173, 0.5), (173, 1.0), (174, 0.5), (225, 0.5), (226, 0.5), (226, 1.0)]
+    pos, w = f.dyad_split(park=True)
+    assert sorted(zip(pos.tolist(), w.tolist())) == \
+        [(173, 0.5), (173, 1.0), (174, 0.5), (225, 0.5), (225, 1.0), (226, 0.5)]
 
 
 def test_interval():
@@ -34,6 +40,15 @@ def test_bincount():
     assert [r[3] for r in rows] == [1, 1, 1]            # dyads 173, 1073, 2173
     assert [r[1:3] for r in rows] == [[0, 1000], [1000, 2000], [2000, 3000]]
     assert rows[0][4] == '147.000000'
+
+
+def test_negative_bin(capsys):
+    # right read ending at 40, tlen -100: fragment [-60, 40), centre -11, bin -1
+    f = F([[100, 150, 147], [20, 40, -100]])
+    rows = counts.bincount({'chr1': f}, {'chr1': 2500}, ['chr1'], 1000, tlen=False)
+    assert [r[3] for r in rows] == [1, 0, 0] and 'dropped 1 fragment' in capsys.readouterr().err
+    rows = counts.bincount({'chr1': f}, {'chr1': 2500}, ['chr1'], 1000, tlen=False, park=True)
+    assert [r[3] for r in rows] == [1, 0, 1]                # Park: wraps to the last bin
 
 
 def test_peaks_greedy():

@@ -11,6 +11,7 @@ job scripts); each function says which.
 """
 import functools
 import math
+import sys
 
 import numpy as np
 from sortedcontainers import SortedList
@@ -24,11 +25,14 @@ SLIDING = (171, 25)                    # batch_submit_ver7.py: sliding_windows
 
 # ---------------------------------------------------------------- bin counts
 
-def bincount(frags, chrom_sizes, chroms, win_size, gc=None, tlen=True):
+def bincount(frags, chrom_sizes, chroms, win_size, gc=None, tlen=True, park=False):
     """Reads per bin of `win_size` bp, for every bin of every chromosome in `chroms`.
 
     As bincount_ver3.py with `-w win_size --gc --tlen` and no length filter (the GEO run):
     one count per fragment at its centre (dyad_bincount), bins [i*w, (i+1)*w).
+    A fragment centred before position 0 is dropped (reported on stderr); park=True adds it to the
+    chromosome's last bin, as the original's Python list indexing did. Neither happens with bowtie2
+    end-to-end alignments.
     Returns rows [chrom, start, end, count, (GC), (mean |tlen|)].
     `gc` is {chrom: array of GC fractions per bin} from gc_content(), or None.
     """
@@ -39,13 +43,20 @@ def bincount(frags, chrom_sizes, chroms, win_size, gc=None, tlen=True):
         tl = np.zeros(n, dtype=np.int64)
         f = frags.get(chrom)
         if f is not None and len(f):
-            idx = f.dyad_bincount() // win_size
+            idx = f.dyad_bincount(park) // win_size
+            length = np.abs(f.tlen)
             # the original indexes a Python list: negative indices wrap, too-large ones crash
             if (idx >= n).any():
                 raise IndexError(f'{chrom}: fragment centre beyond the last bin')
-            idx = np.where(idx < 0, idx + n, idx)
+            if park:
+                idx = np.where(idx < 0, idx + n, idx)
+            elif (idx < 0).any():
+                keep = idx >= 0
+                print(f'bincount: {chrom}: dropped {int((~keep).sum())} fragment(s) centred before position 0',
+                      file=sys.stderr)
+                idx, length = idx[keep], length[keep]
             np.add.at(counts, idx, 1)
-            np.add.at(tl, idx, np.abs(f.tlen))
+            np.add.at(tl, idx, length)
         for i in range(n):
             row = [chrom, i * win_size, (i + 1) * win_size, int(counts[i])]
             if gc is not None:
@@ -117,7 +128,7 @@ def peaks(frags, min_len=PEAK_MIN_LEN, max_len=PEAK_MAX_LEN, ncp_len=PEAK_NCP_LE
     f = frags.select(min_len, max_len)
     if not len(f):
         return {}
-    pos, w = f.dyad_split()
+    pos, w = f.dyad_split(park)
     upos, inv = np.unique(pos, return_inverse=True)
     score = np.bincount(inv, weights=w)
     # Python 2 kept a position's score an int until a 0.5 was added; the text output shows it
