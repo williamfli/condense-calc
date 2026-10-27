@@ -58,12 +58,15 @@ def test_score_formula(tmp_path):
     t, c = tmp_path / 't.gtab.gz', tmp_path / 'c.gtab.gz'
     gtab.write(t, ['Chromosome', 'Start', 'End', 'T'], [['chr1', 0, 10, 5], ['chr1', 10, 20, 0], ['chr1', 30, 40, 9]])
     gtab.write(c, ['Chromosome', 'Start', 'End', 'C'], [['chr1', 0, 10, 10], ['chr1', 10, 20, 4], ['chr1', 20, 30, 0]])
-    (header, rows), = score.score([(t, c)], survival_fraction=0.5)
-    # rows scored: control rows with control > 0 (chr1:0, chr1:10); the test-only row is dropped
+    (header, rows), = score.score([(t, c)], survival_fraction=0.5, missing_as_nan=False)
+    # Park: rows scored are control rows with control > 0 (chr1:0, chr1:10); the test-only row is dropped
     T, C = (5 + 1) + (0 + 1), (10 + 1) + (4 + 1)
     want0 = -math.log(((5 + 1) / T) / ((10 + 1) / C)) - math.log(0.5)
     assert [r[1] for r in rows] == ['0', '10']
     assert float(rows[0][3]) == round(want0, 5)
+    # default: the control row without reads stays, as NA; the other values do not change
+    (header, rows_na), = score.score([(t, c)], survival_fraction=0.5)
+    assert rows_na[:2] == rows and rows_na[2] == ['chr1', '20', '30', 'NA']
 
 
 def test_py2_formatting():

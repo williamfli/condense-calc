@@ -30,8 +30,8 @@ def score(pairs, survival_fraction=None, chroms=None, missing_as_nan=DEFAULTS['s
     Follows NCPscore_ver4.py exactly:
       - only rows present in the control are scored; a test row missing there is dropped;
         a control row missing in the test counts as 0
-      - a row whose control values are all 0 is dropped (missing_as_nan=True writes it as NA instead,
-        which is not what GEO has)
+      - a row whose control values are all 0 is written as NA (missing_as_nan, the default) or dropped
+        (missing_as_nan=False, as the original and GEO); the totals are the same either way
       - per column: +1 pseudocount on both sides; totals T, C over the rows with control > 0
       - score = -ln[((t+1)/T) / ((c+1)/C)] - ln(f), rounded to 5 decimals; control 0 -> NA
     Returns [(header, rows)] per pair, ready for gtab.write.

@@ -15,7 +15,7 @@ DEFAULTS = {
     'threads': 8,                       # bowtie2 threads per library
     'bin_sizes': [1000, 10000],
     'reads': {'mm': 10, 'min_mapq': 10, 'dedup': False},
-    'score': {'missing_as_nan': False},
+    'score': {'missing_as_nan': True},  # bins without input reads: NA rows, so every table has the full bin grid
     'mscale': {'Ca': 5},                # molecule-number scale per agent (others 1)
     'fit': {'bin_size': 10000, 'min_tnum': 5, 'model': 'sigmoid', 'method': 'evolution', 'min_rsq': 0.5},
     'qc': 'default',
@@ -24,6 +24,7 @@ DEFAULTS = {
 }
 PARK = {
     'reads': {'min_mapq': 0},         # Park's MAPQ filter is commented out (bincount_ver3.py:111-114)
+    'score': {'missing_as_nan': False},   # NCPscore_ver4.py drops bins without input reads
 }
 
 # keys that say what to run, not how: written by `condense` or given in a config file
