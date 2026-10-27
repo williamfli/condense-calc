@@ -364,3 +364,15 @@ def test_sheet_titration_verbatim(tmp_path):
     sheet.read_simple(tmp_path / 's.tsv', 'hg38', workdir=tmp_path / 'run', note=notes.append)
     assert len(notes) == 1 and '0.0977444' in notes[0]
     assert sheet._sig_digits('0.400') == 3 and sheet._sig_digits('9.7744361e-2') == 8
+
+
+def test_park_preset_and_explicit_keys():
+    import argparse
+    from condense_calc import cli, settings
+    assert settings.resolve({})['reads']['min_mapq'] == 10
+    park = settings.resolve({'park': True})
+    assert park['reads'] == {'mm': 10, 'min_mapq': 0, 'dedup': False}
+    assert settings.resolve({'park': True, 'reads': {'min_mapq': 5}})['reads']['min_mapq'] == 5    # explicit wins
+    a = argparse.Namespace(park=True, min_mapq=None, mm=None)
+    cli._stage_defaults(a)
+    assert (a.min_mapq, a.mm) == (0, 10)

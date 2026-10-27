@@ -30,7 +30,7 @@ NAME_RE = re.compile(r'_(\d+)_(\d+)rep(_deep)?$')
 THRESHOLDS = {
     'min_alignment_rate': (0.80, 'bowtie2 overall alignment rate'),
     'min_used_fraction': (0.50, 'share of read pairs kept as fragments (proper pair, edit distance)'),
-    'max_lowmapq_fraction': (0.15, 'share of kept fragments with MAPQ < 10 (multi-mapping)'),
+    'max_lowmapq_fraction': (0.15, 'share of fragments with MAPQ < 10 (multi-mapping), before the MAPQ filter'),
     'min_mono_fraction': (0.50, f'share of fragments {MONO[0]}-{MONO[1]} bp'),
     'min_tlen_mode': (130, 'fragment-length mode, lower bound'),
     'max_tlen_mode': (170, 'fragment-length mode, upper bound'),
@@ -77,21 +77,23 @@ def parse_bowtie2_log(path):
     }
 
 
-def sample_stats(bam, bowtie2_log, mm=10, min_mapq=0, threads=1, verbose=False):
+def sample_stats(bam, bowtie2_log, mm=10, min_mapq=10, threads=1, verbose=False):
     """Reads the fragments the pipeline counts (forward read of a proper pair, edit distance
-    <= mm, MAPQ >= min_mapq) once with samtools, and summarizes them."""
+    <= mm, MAPQ >= min_mapq) once with samtools, and summarizes them. lowmapq_fraction is taken
+    before the MAPQ filter, so it shows how much of the library maps to several places."""
     d = {'sample': Path(bam).name.split('.')[0], **parse_bowtie2_log(bowtie2_log)}
-    q = f'-q {min_mapq}' if min_mapq else ''
-    cmd = (f"set -o pipefail; samtools view -@ {max(threads - 1, 1)} -f 0x2 -F 0x1C -e '[NM]<={mm}' {q} "
+    cmd = (f"set -o pipefail; samtools view -@ {max(threads - 1, 1)} -f 0x2 -F 0x1C -e '[NM]<={mm}' "
            f"'{bam}' | cut -f 3,4,5,9")
     proc = subprocess.Popen(['bash', '-c', cmd], stdout=subprocess.PIPE)
     hist = np.zeros(TLEN_MAX + 2, dtype=np.int64)       # last bin: longer than TLEN_MAX
-    n = lowq = dup = 0
+    n = n_all = lowq = dup = 0
 
     def add(df):
-        nonlocal n, lowq, dup
-        n += len(df)
+        nonlocal n, n_all, lowq, dup
+        n_all += len(df)
         lowq += int((df['mapq'] < 10).sum())
+        df = df[df['mapq'] >= min_mapq]
+        n += len(df)
         hist[:] += np.bincount(np.minimum(df['tlen'].abs().to_numpy(), TLEN_MAX + 1), minlength=TLEN_MAX + 2)
         if verbose:
             dup += int(df.duplicated(['chrom', 'pos', 'tlen']).sum())
@@ -116,7 +118,9 @@ def sample_stats(bam, bowtie2_log, mm=10, min_mapq=0, threads=1, verbose=False):
     d.update({
         'fragments': n,
         'used_fraction': n / d['read_pairs'] if d['read_pairs'] else float('nan'),
-        'lowmapq_fraction': lowq / max(n, 1),
+        'min_mapq': min_mapq,
+        'lowmapq_fragments': lowq,
+        'lowmapq_fraction': lowq / max(n_all, 1),
         'tlen_median': int(np.searchsorted(cum, n / 2)) if n else None,
         'tlen_mode': int(50 + np.argmax(hist[50:TLEN_MAX + 1])) if n else None,
         'mono_fraction': frac((tl >= MONO[0]) & (tl <= MONO[1])),
@@ -294,8 +298,8 @@ def series_figure(d, samples, png):
             x = np.arange(len(samples))
             ax.bar(x, [s['read_pairs'] / 1e6 for s in samples], color='0.8', label='read pairs')
             ax.bar(x, [s['fragments'] / 1e6 for s in samples], color='C0', label='fragments kept')
-            ax.bar(x, [s['fragments'] * s['lowmapq_fraction'] / 1e6 for s in samples], color='C3',
-                   label='kept, MAPQ < 10')
+            ax.bar(x, [s.get('lowmapq_fragments', s['fragments'] * s['lowmapq_fraction']) / 1e6 for s in samples],
+                   color='C3', label='MAPQ < 10' + (' (not kept)' if samples[0].get('min_mapq', 0) >= 10 else ''))
             ax.set_xticks(x, [f"#{t}" for t in tn])
             ax.set_ylabel('millions')
             ax.set_title('Reads per titration point')

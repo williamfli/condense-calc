@@ -14,7 +14,7 @@ DEFAULTS = {
     'trim_to': 50,                      # reads are trimmed to this length before alignment
     'threads': 8,                       # bowtie2 threads per library
     'bin_sizes': [1000, 10000],
-    'reads': {'mm': 10, 'min_mapq': 0, 'dedup': False},
+    'reads': {'mm': 10, 'min_mapq': 10, 'dedup': False},
     'score': {'missing_as_nan': False},
     'mscale': {'Ca': 5},                # molecule-number scale per agent (others 1)
     'fit': {'bin_size': 10000, 'min_tnum': 5, 'model': 'sigmoid', 'method': 'evolution', 'min_rsq': 0.5},
@@ -22,7 +22,9 @@ DEFAULTS = {
     'qc_thresholds': {},
     'max_runtime': 3 * 24 * 60,         # minutes; the longest time limit a retried step may ask for
 }
-PARK = {}
+PARK = {
+    'reads': {'min_mapq': 0},         # Park's MAPQ filter is commented out (bincount_ver3.py:111-114)
+}
 
 # keys that say what to run, not how: written by `condense` or given in a config file
 INPUTS = ('sheet', 'genome', 'genomes', 'nucleosomes', 'samples', 'titration_dir', 'cells', 'chroms', 'refs',
