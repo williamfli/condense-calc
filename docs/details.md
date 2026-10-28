@@ -120,7 +120,7 @@ Measured on hg38. Deep: libraries of ~320 M read pairs.
 
 | step | memory | time |
 |---|---|---|
-| align | ~6.3 GB | ~0.8–1 M read pairs per minute with 8 threads; a deep library ~2 h with 24 |
+| align | ~6.3 GB | ~1.1 M read pairs per minute with 8 threads, 1.4–2.5 M with 24 (a deep library of 250–500 M pairs: 2–4 h) |
 | bincount | ~3 GB plus 0.6 × the BAM size (deep: 8.4 GB) | deep: ~20 min |
 | score_bin | 4.4–4.9 GB at 1 kb | ~1 min |
 | peaks (per chromosome) | ≤ 11.5 GB (deep, chr1) | ≤ 5 min |
@@ -129,7 +129,7 @@ Measured on hg38. Deep: libraries of ~320 M read pairs.
 | fit | 0.5 GB | ~2.5 h for 10 points (one core) |
 
 Other steps need ≤ 2 GB. Time limits are short so jobs start sooner: 1 h for most steps (at least 8× the longest measured), and for align 3× its expected time from the FASTQ size, plus 1 h. With `--slurm`, a failed step is retried once with twice the memory and twice the time
-limit (time capped at `max_runtime`). A deep series with per-nucleosome scores takes ~3–4 h from FASTQ.
+limit (time capped at `max_runtime`). A deep series with per-nucleosome scores takes ~3–5 h from FASTQ.
 Genomes, once: hg38 ~7 GB download (~30 min); `hg38_ucsc` builds its index (~1.5 h with 8 threads, ~8 GB).
 
 ## Tests
