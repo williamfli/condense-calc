@@ -313,6 +313,7 @@ onstart:
         print(f'WARNING: {w}', file=sys.stderr)
 
 localrules: run_info
+CODE_VERSION = record.code_version()    # when the run starts: the controller parses this file once
 
 rule run_info:
     # mode, effective settings, versions, references, chromosomes, and per library bowtie2 and the FASTQ check
@@ -321,7 +322,7 @@ rule run_info:
     params: settings=SETTINGS
     run:
         record.write(output[0], SETTINGS, USED_GENOMES, BT2_DIR, {c: v['chroms'] for c, v in CELLS.items()},
-                     list(SAMPLES.index), warnings=CHRY_WARNINGS)
+                     list(SAMPLES.index), warnings=CHRY_WARNINGS, code=CODE_VERSION)
 
 # ---------------------------------------------------------------- quality control
 VERBOSE = '--verbose' if QC == 'verbose' else ''

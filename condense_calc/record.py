@@ -52,7 +52,7 @@ def _first_line(path):
     return Path(path).read_text().splitlines()[0].strip() if Path(path).exists() else None
 
 
-def write(path, settings, genomes, bt2_dir, chroms, names, logs='logs/align', warnings=()):
+def write(path, settings, genomes, bt2_dir, chroms, names, logs='logs/align', warnings=(), code=None):
     try:
         bt2_version = reference.bowtie2_version(bt2_dir)
     except (OSError, subprocess.CalledProcessError):
@@ -64,7 +64,7 @@ def write(path, settings, genomes, bt2_dir, chroms, names, logs='logs/align', wa
                    'bowtie2_version': reference.parse_version(version.read_text()) if version.exists() else None,
                    'fastq_check': json.loads(check.read_text()) if check.exists() else None}
     rec = {'mode': 'park' if settings['park'] else 'default',
-           'condense_calc': code_version(),
+           'condense_calc': code or code_version(),    # code: the version when the run started
            'settings': settings,
            'bowtie2': {'setting': settings['bowtie2'], 'version': bt2_version,
                        'folder': bt2_dir or str(Path(shutil.which('bowtie2') or '').parent)},
