@@ -3,7 +3,7 @@
 condense-calc turns condense-seq reads into condensability scores.
 - **You give:** paired-end FASTQs of the input and of the supernatant at each concentration of a titration, and the soluble fraction at each concentration.
 - **You get**, for every series: a condensability score per 10 kb and per 1 kb bin at each concentration, a QC report, and, for series with the input and at least 4 concentrations, c½ per 10 kb bin: the concentration at which half of the bin's nucleosomes stay soluble.
-- **Deep series** (~300 M read pairs per library, with `--nucleosomes`) also get a score per nucleosome. Shallow series (10–20 M read pairs) are best read at 10 kb; their 1 kb scores are noisy.
+- **Deep series** (~300 M read pairs per library) can also get a score per nucleosome. Add `--nucleosomes` to the run command: condense-calc then finds nucleosome positions from the input's reads and scores each one at every concentration. The flag applies to every series in the sample sheet, so put deep series in their own sheet. Shallow series (10–20 M read pairs) have too few reads per nucleosome for this, and are best read at 10 kb; their 1 kb scores are noisy.
 
 By default it uses the processing of Park & Ha, Nature, 2025: from their reads, the tables are identical to their GEO tables. `--revised` makes a few design changes ([what and why](docs/revised.md)).
 
