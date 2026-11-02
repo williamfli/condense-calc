@@ -9,7 +9,7 @@ By default it uses the processing of Park & Ha, Nature, 2025: from their reads, 
 ## Install
 
 ```bash
-git clone git@github.com:williamfli/condense-calc.git    # private: ask the owner for access
+git clone https://github.com/williamfli/condense-calc.git
 cd condense-calc
 conda env create -f environment.yml
 conda activate condense-calc
