@@ -5,7 +5,7 @@ condense-calc turns condense-seq reads into condensability scores.
 - **You get**, for every series: a condensability score per 10 kb and per 1 kb bin at each concentration, a QC report, and, for series with the input and at least 4 concentrations, c½ per 10 kb bin: the concentration at which half of the bin's nucleosomes stay soluble.
 - **Deep series** (~300 M read pairs per library) can also get a score per nucleosome. Add `--nucleosomes` to the run command.
 
-By default it uses the processing of Park & Ha, Nature, 2025: from their reads, the tables are identical to their GEO tables. `--revised` makes a few design changes ([what and why](docs/revised.md)).
+By default it uses the processing of our paper (Park, Merino-Urteaga, Karwacki-Neisius, Carrizo, Athreya … Ha, Nature, 2025): from our reads, the tables are identical to our GEO tables. `--revised` makes a few design changes ([what and why](docs/revised.md)).
 
 ## Install
 
@@ -79,7 +79,7 @@ In `results/` next to `samples.tsv` (or in `-o FOLDER`). Tables are gzipped tab-
 | `qc/report.html` | QC report ([example](docs/qc_example.md)); `qc/flags.tsv` lists values outside the expected range |
 | `run_info.json` | settings, references, condense-calc and bowtie2 versions |
 
-## Reproduce the GEO tables of Park et al.
+## Reproduce our GEO tables
 
 ```bash
 condense fetch SRR31626986 SRR31626987 SRR31626988 SRR31626989 -o fastq   # H1 PEG rep 2, from NCBI SRA
@@ -101,7 +101,7 @@ condense samples.tsv
 ```
 
 On a cluster, run `condense fetch` in a job (it prints an `sbatch` line to paste) and add `--slurm` to the last line.
-Name GM12878 and mCD8T series as on GEO (`GM_...`, `mCD8T_...`), so chrY is left out as Park et al. did.
+Name GM12878 and mCD8T series as on GEO (`GM_...`, `mCD8T_...`), so chrY is left out as in the paper.
 For GEO's file and column names too: [docs/geo.md](docs/geo.md).
 
 Settings, config files, steps, resources and tests: [docs/details.md](docs/details.md).

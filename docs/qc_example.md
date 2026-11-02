@@ -1,6 +1,6 @@
 # Example QC report
 
-What `results/qc/report.html` looks like, from two runs of Park & Ha, Nature, 2025's GM12878 data (GEO GSE252941,
+What `results/qc/report.html` looks like, from two runs of our GM12878 data (Park, Merino-Urteaga, Karwacki-Neisius, Carrizo, Athreya … Ha, Nature, 2025; GEO GSE252941,
 replicate 1), whose score tables are identical to GEO's. The report itself is an HTML page with the same tables
 and figures; flags are also in `qc/flags.tsv`.
 
@@ -48,7 +48,7 @@ nucleosomes may overlap by at most 40 bp.
 ![QC figure of GM_NCP_sp_1rep_deep](qc_example/GM_NCP_sp_1rep_deep.png)
 
 Two flags: at both points the score correlates with the input read count (Spearman ρ ≈ −0.6, threshold 0.3).
-The tables are GEO's, so this is in Park et al.'s data, not added by the processing.
+The tables are GEO's, so this is in our data, not added by the processing.
 
 | level | name | metric | value | threshold |
 |---|---|---|---|---|

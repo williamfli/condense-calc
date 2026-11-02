@@ -1,9 +1,9 @@
 # Settings, config files and steps
 
-condense-calc is a Python 3 port of the preprocessing scripts of Park & Ha, Nature, 2025
+condense-calc is a Python 3 port of the preprocessing scripts of Park, Merino-Urteaga, Karwacki-Neisius, Carrizo, Athreya … Ha, Nature, 2025
 ([spark159/condense-seq](https://github.com/spark159/condense-seq) `prepro_scripts`, commit `a8d2dd8`),
 with the settings of the script that made the GEO tables (`submit_scripts/batch_submit_ver7.py`).
-The defaults are Park et al.'s processing; what `--revised` changes, and why: [revised.md](revised.md).
+The defaults are the paper's processing; what `--revised` changes, and why: [revised.md](revised.md).
 
 ## All settings
 
@@ -13,7 +13,7 @@ Settings you give override `--revised`. A config run stops on `--settings`, `--n
 
 | setting | default | `--revised` | |
 |---|---|---|---|
-| `park` | `true` | `false` | `true`: Park et al.'s processing; `false`: the revised one ([revised.md](revised.md)) |
+| `park` | `true` | `false` | `true`: the paper's processing; `false`: the revised one ([revised.md](revised.md)) |
 | `reads: {min_mapq}` | 0 | 10 | minimum MAPQ of a fragment's forward-strand read; 0: no filter |
 | `reads: {mm}` | 10 | | maximum edit distance (NM) |
 | `reads: {dedup}` | `false` | | `true`: drop fragments with the same chromosome, start and length |
@@ -87,7 +87,7 @@ Any setting above can be added to the config.
 (the input); a sheet can set it in a `point` column. With a `rep` column the series is `<series>_rep<N>`.
 With a config file the names follow GEO: `<cell>_<sample>_<agent>_<point>_<rep>rep[_deep]`.
 
-| step | Park's script | what it does | output |
+| step | original script | what it does | output |
 |---|---|---|---|
 | align | `bowtie-submit` | FASTQ check (`fastq_check`), then bowtie2 end-to-end, paired, `--trim-to 50` | `bam/<name>.bam` |
 | bincount | `bincount_ver3.py` | fragments per bin (`bin_sizes`), at the fragment centre, no length filter | `bin/` |
@@ -107,11 +107,11 @@ With a config file the names follow GEO: `<cell>_<sample>_<agent>_<point>_<rep>r
 - **Fragment centre:** even lengths go to the left of the two centre bases in `bincount`; the peak caller
   splits them 0.5/0.5. The peak caller is greedy and does no smoothing.
 - **Text output:** numbers are rounded and printed as Python 2 did, so files compare byte for byte.
-- `bowtie-submit_ver2`, which Park's driver calls, is missing from Park's repository; the align step uses
+- `bowtie-submit_ver2`, which the original driver calls, is missing from the original repository; the align step uses
   `bowtie-submit` with the driver's `trim_to = 50`.
 
-Not carried over from Park's scripts: per-base coverage files and the full dyad-signal file (both computed in
-memory), scores of sliding windows, the log2/log10 score options, and Park's downstream scripts
+Not carried over from the original scripts: per-base coverage files and the full dyad-signal file (both computed in
+memory), scores of sliding windows, the log2/log10 score options, and the original downstream scripts
 (fragment-length plots, occupancy, motifs, profiles, annotation).
 
 ## Resources
@@ -141,11 +141,11 @@ pytest tests/test_units.py
 bash tests/synthetic/run.sh /tmp/cc-test             # simulated experiment, ~1–2 min
 python tests/synthetic/check_truth.py /tmp/cc-test   # recovery of the simulated scores and c½
 bash tests/synthetic/run_sheet.sh /tmp/cc-test       # the same run from a sample sheet: the same values
-bash tests/equivalence/run.sh /tmp/cc-park PARK_REPO PYTHON2   # the default (Park) mode against Park's scripts
+bash tests/equivalence/run.sh /tmp/cc-park PARK_REPO PYTHON2   # the default (Park) mode against the original scripts
 ```
 
 `PARK_REPO` is a checkout of spark159/condense-seq at `a8d2dd8`; `PYTHON2` defaults to `python2`.
 The equivalence test runs condense-calc in Park mode on a simulated 600 kb experiment (a shallow and a deep
-series), then Park's Python 2 scripts on the same BAMs: every intermediate and final table is identical.
+series), then the original Python 2 scripts on the same BAMs: every intermediate and final table is identical.
 `check_truth.py` compares the tables with the simulated truth (10 kb scores r = 0.98–0.998, per nucleosome
 r = 0.89–0.95, c½ r = 0.99). Against GEO: [geo.md](geo.md).
