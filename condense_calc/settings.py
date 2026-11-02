@@ -1,11 +1,11 @@
-"""Settings of a run: the defaults, the Park preset, and their validation.
+"""Settings of a run: the defaults (Park et al.'s processing), the revised preset, and their validation.
 
 One source of truth for the workflow (Snakefile), `condense run` and the stage subcommands.
 
-`park: true` (`condense run --park`, `condense-calc <stage> --park`) reproduces the processing that made
-the GEO tables of Park et al. 2025 (GSE252941) with Park's scripts. PARK holds the settings that differ
-from the defaults; in Park mode the stages also switch to Park's own behaviour where that has no setting.
-Keys the user gives explicitly override both.
+By default condense-calc reproduces the processing that made the GEO tables of Park et al. 2025 (GSE252941)
+with Park's scripts. `park: false` (`condense run --revised`, `condense-calc <stage> --revised`) applies a few
+design changes: REVISED holds the settings that change; the stages also leave Park's own behaviour where that
+has no setting (docs/revised.md). Keys the user gives explicitly override both.
 """
 import difflib
 import re
@@ -13,26 +13,28 @@ import re
 from .reference import VERSION
 
 DEFAULTS = {
-    'park': False,
+    'park': True,                       # Park et al.'s processing; false: the revised one (REVISED)
     'trim_to': 50,                      # reads are trimmed to this length before alignment
     'threads': 8,                       # bowtie2 threads per library
     'bin_sizes': [1000, 10000],
-    'reads': {'mm': 10, 'min_mapq': 10, 'dedup': False},
-    'score': {'missing_as_nan': True},  # bins without input reads: NA rows, so every table has the full bin grid
+    'reads': {'mm': 10, 'min_mapq': 0, 'dedup': False},   # Park's MAPQ filter is commented out (bincount_ver3.py)
+    'score': {'missing_as_nan': False}, # NCPscore_ver4.py drops bins without input reads
     'mscale': {'Ca': 5},                # molecule-number scale per agent (others 1)
     'fit': {'bin_size': 10000, 'min_tnum': 5, 'model': 'sigmoid', 'method': 'evolution', 'min_rsq': 0.5},
-    'bowtie2': 'bowtie2',               # 'bowtie2' (PATH: this environment's), a version (installed once), or a path
-    'fastq_check': 'lite',              # before alignment: stop on SRA Lite reads (fastq.py)
+    'bowtie2': '2.4.1',                 # the version in Park et al.'s Reporting Summary (installed once); 'bowtie2'
+                                        # (PATH: this environment's), another version, or a path
+    'fastq_check': 'park',              # before alignment: stop on SRA Lite reads and on read names not in the
+                                        # form Park aligned (fastq.py)
     'bdata': False,                     # deep series: also sliding-window areas (bindata_ver3.py); no table uses them
     'qc': 'default',
     'qc_thresholds': {},
     'max_runtime': 3 * 24 * 60,         # minutes; the longest time limit a retried step may ask for
 }
-PARK = {
-    'reads': {'min_mapq': 0},         # Park's MAPQ filter is commented out (bincount_ver3.py:111-114)
-    'score': {'missing_as_nan': False},   # NCPscore_ver4.py drops bins without input reads
-    'bowtie2': '2.4.1',                 # the version in Park et al.'s Reporting Summary
-    'fastq_check': 'park',              # also stop on read names not in the form Park aligned
+REVISED = {
+    'reads': {'min_mapq': 10},          # drop multi-mapping reads, whose placement depends on read names
+    'score': {'missing_as_nan': True},  # bins without input reads: NA rows, so every table has the full bin grid
+    'bowtie2': 'bowtie2',               # this environment's (2.5.5)
+    'fastq_check': 'lite',              # stop on SRA Lite reads only
 }
 
 # Park mode: the reference Park et al. used in place of a preset (reference.py; mm10 is already theirs)
@@ -118,11 +120,11 @@ def _slot(out, key):
 
 
 def is_park(config):
-    return _bool((config or {}).get('park', False), 'park')
+    return _bool((config or {}).get('park', True), 'park')
 
 
 def resolve(config=None, park=None):
-    """Effective settings: DEFAULTS, then PARK in Park mode, then the user's keys (dicts merged one level deep).
+    """Effective settings: DEFAULTS, then REVISED if park is false, then the user's keys (dicts merged one level deep).
 
     config: the user's settings, or a whole workflow config (its INPUTS keys are skipped). park, if given,
     overrides config['park']. Unknown keys and invalid values raise SettingsError."""
@@ -141,7 +143,7 @@ def resolve(config=None, park=None):
     mode = is_park(user)
     out = {}
     for key, default in DEFAULTS.items():
-        preset = PARK.get(key) if mode else None
+        preset = None if mode else REVISED.get(key)
         given = user.get(key)
         if isinstance(default, dict):
             if given is not None and not isinstance(given, dict):
@@ -186,7 +188,7 @@ def resolve(config=None, park=None):
 
 
 def describe(section, key=None):
-    """'default X' or 'default X; Park mode Y', for help texts."""
+    """'default X' or 'default X; --revised: Y', for help texts."""
     d = DEFAULTS[section] if key is None else DEFAULTS[section][key]
-    p = PARK.get(section) if key is None else PARK.get(section, {}).get(key)
-    return f'default {d}' + (f'; --park: {p}' if p is not None and p != d else '')
+    r = REVISED.get(section) if key is None else REVISED.get(section, {}).get(key)
+    return f'default {d}' + (f'; --revised: {r}' if r is not None and r != d else '')

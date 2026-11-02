@@ -3,23 +3,23 @@
 condense-calc is a Python 3 port of the preprocessing scripts of Park & Ha, Nature, 2025
 ([spark159/condense-seq](https://github.com/spark159/condense-seq) `prepro_scripts`, commit `a8d2dd8`),
 with the settings of the script that made the GEO tables (`submit_scripts/batch_submit_ver7.py`).
-Where the defaults differ from Park et al.'s processing, and what `--park` restores: [park.md](park.md).
+The defaults are Park et al.'s processing; what `--revised` changes, and why: [revised.md](revised.md).
 
 ## All settings
 
 In a YAML file given with `--settings FILE` (sample-sheet run), or in the config file (config run).
-`--park`, `--qc` and (sample-sheet runs) `--nucleosomes` set `park`, `qc` and `nucleosomes`. Settings you give
-override `--park`. A config run stops on `--settings`, `--nucleosomes` and `-g`: put these in the config.
+`--revised` (or `--park`), `--qc` and (sample-sheet runs) `--nucleosomes` set `park`, `qc` and `nucleosomes`.
+Settings you give override `--revised`. A config run stops on `--settings`, `--nucleosomes` and `-g`: put these in the config.
 
-| setting | default | `--park` | |
+| setting | default | `--revised` | |
 |---|---|---|---|
-| `park` | `false` | `true` | Park et al.'s processing ([park.md](park.md)) |
-| `reads: {min_mapq}` | 10 | 0 | minimum MAPQ of a fragment's forward-strand read; 0: no filter |
+| `park` | `true` | `false` | `true`: Park et al.'s processing; `false`: the revised one ([revised.md](revised.md)) |
+| `reads: {min_mapq}` | 0 | 10 | minimum MAPQ of a fragment's forward-strand read; 0: no filter |
 | `reads: {mm}` | 10 | | maximum edit distance (NM) |
 | `reads: {dedup}` | `false` | | `true`: drop fragments with the same chromosome, start and length |
-| `score: {missing_as_nan}` | `true` | `false` | rows without input reads: NA (`true`) or dropped (`false`) |
-| `fastq_check` | `lite` | `park` | `off`; `lite`: stop on SRA Lite reads; `park`: also on read names not in the instrument's form |
-| `bowtie2` | `bowtie2` | `2.4.1` | `bowtie2`: the environment's (2.5.5); a full version (x.y.z): installed once in `<refs>/envs/`; or the path of a bowtie2 |
+| `score: {missing_as_nan}` | `false` | `true` | rows without input reads: NA (`true`) or dropped (`false`) |
+| `fastq_check` | `park` | `lite` | `off`; `lite`: stop on SRA Lite reads; `park`: also on read names not in the instrument's form |
+| `bowtie2` | `2.4.1` | `bowtie2` | a full version (x.y.z): installed once in `<refs>/envs/`; `bowtie2`: the environment's (2.5.5); or the path of a bowtie2 |
 | `bdata` | `false` | | `true`: deep series also get sliding-window areas (not scored) |
 | `threads` | 8 | | bowtie2 threads per library |
 | `trim_to` | 50 | | reads are trimmed to this length before alignment |
@@ -29,7 +29,7 @@ override `--park`. A config run stops on `--settings`, `--nucleosomes` and `-g`:
 | `qc` | `default` | | `off`, `default`, `verbose` (adds duplicates, GC, a score profile, dinucleotide periodicity) |
 | `qc_thresholds` | `{}` | | overrides, e.g. `{min_replicate_rho: 0.7}`; the report lists every threshold |
 | `max_runtime` | 4320 | | minutes; the longest time limit a retried step may ask for (Slurm) |
-| `chroms` | see below | GM, mCD8T: no chrY | chromosomes to score; in a config file, per cell under `cells:` |
+| `chroms` | see below; GM, mCD8T: no chrY | see below | chromosomes to score; in a config file, per cell under `cells:` |
 | `nucleosomes` | `false` | | sample-sheet run: per-nucleosome scores for every series (config run: `depth: deep`) |
 | `refs` | `$CONDENSE_REFS`, else `~/.cache/condense-calc` | | where genomes and bowtie2 versions are kept (`--refs`) |
 
@@ -41,7 +41,7 @@ written by `condense` for a sample-sheet run; `align_threads` is an older name o
 Example, used as `condense samples.tsv --settings settings.yaml`:
 
 ```yaml
-reads: {min_mapq: 0}                # keep multi-mapping reads
+reads: {min_mapq: 10}               # drop multi-mapping reads
 chroms: [chr1, chr2, chr3, chrX]    # score only these, e.g. to leave out chrY
 ```
 
@@ -101,7 +101,7 @@ With a config file the names follow GEO: `<cell>_<sample>_<agent>_<point>_<rep>r
 | QC, run record | | QC report and flags; settings, references and versions | `qc/`, `run_info.json` |
 
 - **Score:** −ln[(s+1)/Σ(s+1) ÷ (c+1)/Σ(c+1)] − ln *f*, for supernatant count *s*, input count *c* and soluble
-  fraction *f*; the sums run over rows with *c* > 0. Rows without input reads are NA (`--park`: dropped).
+  fraction *f*; the sums run over rows with *c* > 0. Rows without input reads are dropped (`--revised`: NA).
 - **Reads:** each fragment is counted once, from its forward-strand read. Kept: proper pairs with the mate
   mapped, edit distance (NM) ≤ 10 and MAPQ ≥ `min_mapq`. No duplicate removal.
 - **Fragment centre:** even lengths go to the left of the two centre bases in `bincount`; the peak caller
@@ -141,11 +141,11 @@ pytest tests/test_units.py
 bash tests/synthetic/run.sh /tmp/cc-test             # simulated experiment, ~1–2 min
 python tests/synthetic/check_truth.py /tmp/cc-test   # recovery of the simulated scores and c½
 bash tests/synthetic/run_sheet.sh /tmp/cc-test       # the same run from a sample sheet: the same values
-bash tests/equivalence/run.sh /tmp/cc-park PARK_REPO PYTHON2   # Park mode against Park's scripts
+bash tests/equivalence/run.sh /tmp/cc-park PARK_REPO PYTHON2   # the default (Park) mode against Park's scripts
 ```
 
 `PARK_REPO` is a checkout of spark159/condense-seq at `a8d2dd8`; `PYTHON2` defaults to `python2`.
 The equivalence test runs condense-calc in Park mode on a simulated 600 kb experiment (a shallow and a deep
 series), then Park's Python 2 scripts on the same BAMs: every intermediate and final table is identical.
 `check_truth.py` compares the tables with the simulated truth (10 kb scores r = 0.98–0.998, per nucleosome
-r = 0.89–0.95, c½ r = 0.99). Against GEO: [park.md](park.md#reproducing-the-geo-tables-exactly).
+r = 0.89–0.95, c½ r = 0.99). Against GEO: [geo.md](geo.md).

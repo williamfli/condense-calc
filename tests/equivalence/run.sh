@@ -1,10 +1,10 @@
 #!/bin/bash
-# Run condense-calc in Park mode (--park) on the synthetic test, then Park's original Python 2 scripts
+# Run condense-calc in Park mode (the default) on the synthetic test, then Park's original Python 2 scripts
 # on its BAMs with the arguments of the GEO run, and compare every intermediate and final table with
 # ours. Run from the repo root, in the condense-calc env:
 #   bash tests/equivalence/run.sh OUTDIR PARK_REPO [PYTHON2]
-# OUTDIR: a folder for tests/synthetic/run.sh OUTDIR --park (run here; use another folder than the
-# default-mode test's). PARK_REPO is a checkout of https://github.com/spark159/condense-seq (commit
+# OUTDIR: a folder for tests/synthetic/run.sh OUTDIR (run here; use another folder than the
+# --revised test's). PARK_REPO is a checkout of https://github.com/spark159/condense-seq (commit
 # a8d2dd8); PYTHON2 defaults to `python2` on the PATH. Prints a table that must show every row
 # identical, and exits 1 otherwise.
 set -euo pipefail
@@ -17,7 +17,7 @@ REF=$OUT/input/ref/sim.fa
 CHR="chr1 chr2 chrX"
 
 # ours, in Park mode, with Bdata (run.sh's config sets bdata: true and bowtie2: bowtie2)
-bash tests/synthetic/run.sh "$OUT" --park --quiet
+bash tests/synthetic/run.sh "$OUT" --quiet
 $PY3 - "$OUT/run/run_info.json" <<'PY' || { echo "ERROR: $OUT/run is not a Park-mode run with bdata: true" >&2; exit 1; }
 import json, sys
 r = json.load(open(sys.argv[1]))
@@ -75,7 +75,7 @@ ls | wc -l
 mkdir -p $OUT/equiv/ours && cd $PIPE
 for b in $(ls $OUT/run/bam/*_deep.bam); do n=$(basename $b .bam)
   for c in $CHR; do
-    PYTHONPATH=$PIPE $PY3 -m condense_calc coverage --park --bam $b --fasta $REF --chrom $c -o $OUT/equiv/ours/${n}_${c}_cov.gtab.gz
+    PYTHONPATH=$PIPE $PY3 -m condense_calc coverage --bam $b --fasta $REF --chrom $c -o $OUT/equiv/ours/${n}_${c}_cov.gtab.gz
   done
 done
 PYTHONPATH=$PIPE $PY3 tests/equivalence/compare.py $OUT

@@ -8,6 +8,22 @@ from condense_calc import counts, gtab, score, sheet
 from condense_calc.fragments import Fragments
 
 
+@pytest.fixture(autouse=True)
+def no_installs(tmp_path, monkeypatch):
+    """Nothing is downloaded or installed: the default bowtie2 (2.4.1) would be, into ~/.cache. Tests that check
+    an install mock subprocess.run themselves."""
+    import subprocess
+    from condense_calc import reference
+    monkeypatch.setenv('CONDENSE_REFS', str(tmp_path / 'refs'))
+    real = subprocess.run
+
+    def run(cmd, *a, **k):
+        if 'create' in cmd or any('get_reference' in str(c) for c in cmd):
+            pytest.fail(f'a test would install: {cmd}')
+        return real(cmd, *a, **k)
+    monkeypatch.setattr(reference.subprocess, 'run', run)
+
+
 def F(rows):
     a = np.asarray(rows, dtype=np.int64).reshape(-1, 3)
     return Fragments(a[:, 0], a[:, 1], a[:, 2])
@@ -87,8 +103,8 @@ def test_score_formula(tmp_path):
     want0 = -math.log(((5 + 1) / T) / ((10 + 1) / C)) - math.log(0.5)
     assert [r[1] for r in rows] == ['0', '10']
     assert float(rows[0][3]) == round(want0, 5)
-    # default: the control row without reads stays, as NA; the other values do not change
-    (header, rows_na), = score.score([(t, c)], survival_fraction=0.5)
+    # revised: the control row without reads stays, as NA; the other values do not change
+    (header, rows_na), = score.score([(t, c)], survival_fraction=0.5, missing_as_nan=True)
     assert rows_na[:2] == rows and rows_na[2] == ['chr1', '20', '30', 'NA']
 
 
@@ -178,7 +194,7 @@ def _slurm_cmds(tmp_path, monkeypatch, extra, in_job):
     """The commands `condense-calc run --slurm` would start (nothing is run)."""
     from condense_calc import cli
     cfg = tmp_path / 'config.yaml'
-    cfg.write_text('')
+    cfg.write_text('bowtie2: bowtie2\n')                        # this env's: nothing to install
     calls = []
     monkeypatch.setattr(cli.subprocess, 'call', lambda cmd, **k: calls.append(cmd) or 0)
     monkeypatch.setattr(cli.subprocess, 'run',
@@ -210,7 +226,7 @@ def test_run_finds_tools_of_its_environment(tmp_path, monkeypatch):
     from pathlib import Path
     from condense_calc import cli
     cfg = tmp_path / 'config.yaml'
-    cfg.write_text('')
+    cfg.write_text('bowtie2: bowtie2\n')                        # this env's: nothing to install
     monkeypatch.setenv('SLURM_JOB_ID', '1')
     monkeypatch.setenv('CONDENSE_CONTROLLER', '1')
     monkeypatch.setenv('PATH', '/usr/bin')
@@ -258,7 +274,7 @@ def test_slurm_from_interactive_job_submits_controller(tmp_path, monkeypatch):
     monkeypatch.setenv('SLURM_JOB_ID', '7')
     from condense_calc import cli
     cfg = tmp_path / 'config.yaml'
-    cfg.write_text('')
+    cfg.write_text('bowtie2: bowtie2\n')                        # this env's: nothing to install
     seen = []
     monkeypatch.setattr(cli.subprocess, 'call', lambda cmd, **k: seen.append(cmd) or 0)
     monkeypatch.setattr(cli.subprocess, 'run', lambda cmd, **k: seen.append(cmd) or type('R', (), {'stdout': '1'})())
@@ -270,7 +286,7 @@ def test_slurm_from_interactive_job_submits_controller(tmp_path, monkeypatch):
 def _local_cmd(tmp_path, monkeypatch, extra, env):
     from condense_calc import cli
     cfg = tmp_path / 'config.yaml'
-    cfg.write_text('')
+    cfg.write_text('bowtie2: bowtie2\n')                        # this env's: nothing to install
     for k in ('SLURM_JOB_ID', 'SLURM_MEM_PER_NODE', 'SLURM_MEM_PER_CPU', 'CONDENSE_CONTROLLER'):
         monkeypatch.delenv(k, raising=False)
     for k, v in env.items():
@@ -329,15 +345,15 @@ def test_genome_prepared_in_own_job(tmp_path, monkeypatch):
     seen = []
     monkeypatch.setattr(cli.subprocess, 'run',
                         lambda cmd, **k: seen.append(cmd) or type('R', (), {'stdout': next(ids)})())
-    cli.main(['run', str(sh), '-o', str(tmp_path / 'out'), '--slurm'])
+    cli.main(['run', str(sh), '-o', str(tmp_path / 'out'), '--slurm', '--revised'])
     ref, ctl = seen
     opt = lambda cmd, o: cmd[cmd.index(o) + 1]
     assert 'reference' in ref[-1] and opt(ref, '-c') == '1' and opt(ref, '-t') == '0-12:00'    # hg38: a download
     assert '--dependency=afterok:111' in ctl and opt(ctl, '-c') == '1'
-    # an index to build (hg38_ucsc, or a FASTA): 8 cores
+    # an index to build (the default hg38_ucsc, or a FASTA): 8 cores
     seen.clear()
     ids = iter(['111', '222'])
-    cli.main(['run', str(sh), '-o', str(tmp_path / 'out'), '--slurm', '-g', 'hg38_ucsc'])
+    cli.main(['run', str(sh), '-o', str(tmp_path / 'out'), '--slurm'])
     assert opt(seen[0], '-c') == '8' and opt(seen[0], '--mem') == '32G' and '--threads 8' in seen[0][-1]
     # and not on a login node by hand
     monkeypatch.setattr(cli, '_on_login_node', lambda: True)
@@ -348,11 +364,11 @@ def test_genome_prepared_in_own_job(tmp_path, monkeypatch):
 def test_settings_resolve_and_validate():
     from condense_calc import settings
     S = settings.resolve({})
-    assert S == {**settings.DEFAULTS, 'park': False}
+    assert S == settings.DEFAULTS                                            # Park et al.'s processing
     S = settings.resolve({'reads': {'dedup': 'true'}, 'align_threads': 24, 'samples': 'x.tsv', 'qc': 'OFF'})
     assert S['reads'] == {**settings.DEFAULTS['reads'], 'dedup': True}      # merged one level deep
     assert S['threads'] == 24 and S['qc'] == 'off'                          # earlier name of threads
-    assert settings.resolve({'park': 'true'})['park'] is True                # as Snakemake's --config park=true
+    assert settings.resolve({'park': 'false'})['park'] is False              # as Snakemake's --config park=false
     with pytest.raises(settings.SettingsError, match="did you mean 'reads'"):
         settings.resolve({'read': {'min_mapq': 10}})
     with pytest.raises(settings.SettingsError, match="reads.min_mapqq"):
@@ -373,13 +389,13 @@ def test_settings_resolve_and_validate():
     for cfg, msg in bad:
         with pytest.raises(settings.SettingsError, match=msg):
             settings.resolve(cfg)
-    assert settings.resolve({'reads': {'min_mapq': '0'}})['reads']['min_mapq'] == 0      # --config gives text
+    assert settings.resolve({'reads': {'min_mapq': '10'}})['reads']['min_mapq'] == 10    # --config gives text
 
 
 def test_stage_defaults_from_settings():
     import argparse
     from condense_calc import cli, settings
-    a = argparse.Namespace(park=False, mm=None, min_mapq=None, dedup=None, missing_as_nan=True)
+    a = argparse.Namespace(park=True, mm=None, min_mapq=None, dedup=None, missing_as_nan=True)
     cli._stage_defaults(a)
     R = settings.DEFAULTS['reads']
     assert (a.mm, a.min_mapq, a.dedup) == (R['mm'], R['min_mapq'], R['dedup'])
@@ -397,13 +413,18 @@ def test_run_stops_on_unknown_setting(tmp_path, monkeypatch):
     assert not (tmp_path / 'out').exists()
 
 
-def test_park_reaches_the_workflow(tmp_path, monkeypatch):
-    # a config run gets --config park=true; a sheet run has park: true in condense.yaml (test_park_maps_hg38)
-    from condense_calc import reference
+def test_mode_reaches_the_workflow(tmp_path, monkeypatch):
+    # a config run gets --config park=false (--revised) or park=true (--park); a sheet run has it in condense.yaml
+    # (test_park_maps_hg38)
+    from condense_calc import cli, reference
     monkeypatch.setattr(reference, 'missing_bowtie2', lambda *a, **k: None)   # bowtie2 2.4.1 is there
     monkeypatch.setattr(reference, 'ensure_bowtie2', lambda *a, **k: None)
-    cmd = _local_cmd(tmp_path, monkeypatch, ['--cores', '1', '--park'], {})
-    assert cmd[cmd.index('--config') + 1:cmd.index('--config') + 2] == ['park=true']
+    for flag, conf in (('--revised', 'park=false'), ('--park', 'park=true')):
+        cmd = _local_cmd(tmp_path, monkeypatch, ['--cores', '1', flag], {})
+        assert cmd[cmd.index('--config') + 1:cmd.index('--config') + 2] == [conf]
+    assert not any(c.startswith('park=') for c in _local_cmd(tmp_path, monkeypatch, ['--cores', '1'], {}))
+    with pytest.raises(SystemExit):
+        cli.main(['run', 'x.tsv', '--park', '--revised'])                    # one or the other
 
 
 def test_config_refs_used_for_bowtie2(tmp_path, monkeypatch):
@@ -431,7 +452,7 @@ def _sheet_config(tmp_path, monkeypatch, extra, settings_text=None):
         extra = extra + ['--settings', str(tmp_path / 'settings.yaml')]
     monkeypatch.setattr(cli, '_check', lambda *a, **k: None)
     monkeypatch.setattr(reference, 'ensure', lambda g, *a, **k: (g, f'/refs/{g}/{g}.fa', f'/refs/{g}/{g}'))
-    monkeypatch.setattr(reference, 'missing_bowtie2', lambda *a, **k: None)   # --park: bowtie2 2.4.1 is there
+    monkeypatch.setattr(reference, 'missing_bowtie2', lambda *a, **k: None)   # bowtie2 2.4.1 is there
     monkeypatch.setattr(reference, 'ensure_bowtie2', lambda *a, **k: None)
     monkeypatch.setattr(cli.subprocess, 'call', lambda cmd, **k: 0)
     with pytest.raises(SystemExit):
@@ -466,21 +487,23 @@ def test_sheet_titration_verbatim(tmp_path):
     assert sheet._sig_digits('0.400') == 3 and sheet._sig_digits('9.7744361e-2') == 8
 
 
-def test_park_preset_and_explicit_keys():
+def test_revised_preset_and_explicit_keys():
     import argparse
     from condense_calc import cli, settings
-    assert settings.resolve({})['reads']['min_mapq'] == 10
-    park = settings.resolve({'park': True})
-    assert park['reads'] == {'mm': 10, 'min_mapq': 0, 'dedup': False}
-    assert settings.resolve({'park': True, 'reads': {'min_mapq': 5}})['reads']['min_mapq'] == 5    # explicit wins
-    a = argparse.Namespace(park=True, min_mapq=None, mm=None)
+    assert settings.resolve({})['reads']['min_mapq'] == 0
+    rev = settings.resolve({'park': False})
+    assert rev['reads'] == {'mm': 10, 'min_mapq': 10, 'dedup': False}
+    assert (rev['score'], rev['bowtie2'], rev['fastq_check']) == ({'missing_as_nan': True}, 'bowtie2', 'lite')
+    assert settings.resolve({'park': False, 'reads': {'min_mapq': 5}})['reads']['min_mapq'] == 5    # explicit wins
+    a = argparse.Namespace(park=False, min_mapq=None, mm=None)
     cli._stage_defaults(a)
-    assert (a.min_mapq, a.mm) == (0, 10)
+    assert (a.min_mapq, a.mm) == (10, 10)
+    assert settings.describe('reads', 'min_mapq') == 'default 0; --revised: 10'
 
 
 def test_bdata_opt_in():
     from condense_calc import settings
-    assert settings.resolve({})['bdata'] is False and settings.resolve({'park': True})['bdata'] is False
+    assert settings.resolve({})['bdata'] is False and settings.resolve({'park': False})['bdata'] is False
     assert settings.resolve({'bdata': 'true'})['bdata'] is True
 
 
@@ -501,11 +524,14 @@ def test_reference_presets(tmp_path):
 
 
 def test_park_maps_hg38(tmp_path, monkeypatch):
-    cfg = _sheet_config(tmp_path, monkeypatch, ['--park'])
-    assert cfg['park'] is True and cfg['genome'] == 'hg38_ucsc'
-    cfg = _sheet_config(tmp_path, monkeypatch, ['--park', '-g', 'mm10'])
+    cfg = _sheet_config(tmp_path, monkeypatch, [])
+    assert 'park' not in cfg and cfg['genome'] == 'hg38_ucsc'      # the default: Park et al.'s hg38
+    assert _sheet_config(tmp_path, monkeypatch, ['--park'])['genome'] == 'hg38_ucsc'
+    cfg = _sheet_config(tmp_path, monkeypatch, ['-g', 'mm10'])
     assert cfg['genome'] == 'mm10'                                  # Park's mouse reference is the default one
-    assert _sheet_config(tmp_path, monkeypatch, [])['genome'] == 'hg38'
+    cfg = _sheet_config(tmp_path, monkeypatch, ['--revised'])
+    assert cfg['park'] is False and cfg['genome'] == 'hg38'
+    assert _sheet_config(tmp_path, monkeypatch, [], 'park: false\n')['genome'] == 'hg38'
 
 
 def test_bowtie2_spec(tmp_path, monkeypatch):
@@ -545,7 +571,7 @@ def test_bowtie2_spec(tmp_path, monkeypatch):
 
 
 def test_park_bowtie2_in_reference_job(tmp_path, monkeypatch):
-    # --park: bowtie2 2.4.1 is installed by the genome-preparation job, not on the login node or the controller
+    # Park mode (the default): bowtie2 2.4.1 is installed by the genome-preparation job, not on the login node or the controller
     from condense_calc import cli, reference
     sh = tmp_path / 'sheet.tsv'
     sh.write_text('series\tconc\tfraction\tfastq\n')
@@ -558,7 +584,7 @@ def test_park_bowtie2_in_reference_job(tmp_path, monkeypatch):
     seen = []
     monkeypatch.setattr(cli.subprocess, 'run',
                         lambda cmd, **k: seen.append(cmd) or type('R', (), {'stdout': next(ids)})())
-    cli.main(['run', str(sh), '-o', str(tmp_path / 'out'), '--slurm', '--park'])
+    cli.main(['run', str(sh), '-o', str(tmp_path / 'out'), '--slurm'])
     ref, ctl = seen
     assert '--bowtie2 2.4.1' in ref[-1] and ref[-1].endswith('hg38_ucsc') and '--dependency=afterok:111' in ctl
     assert ref[ref.index('-c') + 1] == '1' and ref[ref.index('-t') + 1] == '0-02:00'    # only a conda install
@@ -679,7 +705,7 @@ def test_run_record(tmp_path, monkeypatch):
     assert r['libraries']['A_0']['bowtie2'].endswith('2.5.5') and r['libraries']['A_1']['fastq_check'] is None
     assert [r['libraries'][n]['bowtie2_version'] for n in ('A_0', 'A_1')] == ['2.5.5', '2.4.1']
     assert len(r['warnings']) == 1 and 'not a reference Park et al. used' in r['warnings'][0]
-    assert record.park_warnings(settings.resolve({}), genomes) == []
+    assert record.park_warnings(settings.resolve({'park': False}), genomes) == []
     assert record.code_version().startswith('0.')
 
 

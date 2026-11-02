@@ -20,7 +20,8 @@ shell.prefix(f'export PYTHONPATH={PKG_PARENT}:$PYTHONPATH; set -euo pipefail; ')
 CLI = 'python -m condense_calc'
 
 # ---------------------------------------------------------------- settings
-# Defaults and the Park preset (`park: true`) are in condense_calc/settings.py; unknown keys are an error.
+# Defaults (Park et al.'s processing) and the revised preset (`park: false`) are in condense_calc/settings.py;
+# unknown keys are an error.
 import sys
 sys.path.insert(0, str(PKG_PARENT))
 from condense_calc import record, reference, settings, sheet
@@ -36,7 +37,7 @@ READS = SETTINGS['reads']
 # every option is passed explicitly, so the stages' own defaults do not matter here
 READ_OPTS = (f"--mm {READS['mm']} --min-mapq {READS['min_mapq']}" + (' --dedup' if READS['dedup'] else ' --no-dedup'))
 NAN_OPT = '--missing-as-nan' if SETTINGS['score']['missing_as_nan'] else '--no-missing-as-nan'
-PARK_OPT = '--park' if SETTINGS['park'] else ''      # stages: Park's behaviour where it has no setting
+PARK_OPT = '' if SETTINGS['park'] else '--revised'   # stages: Park's behaviour where it has no setting, or not
 BDATA = SETTINGS['bdata']
 QC = SETTINGS['qc']
 

@@ -3,8 +3,8 @@
   condense init FASTQ_DIR      write a sample sheet listing the FASTQ files (fill in conc, fraction)
   condense SHEET               run everything: alignment, scores, c-half fit, QC report
   condense SHEET --slurm       the same, each step as a Slurm job
-  condense SHEET --park        reproduce the GEO tables of Park et al. 2025 (their processing and references)
-  condense fetch SRR...        FASTQs of SRA runs as Park et al. aligned them (for --park)
+  condense SHEET --revised     with a few design changes to Park et al. 2025's processing (docs/revised.md)
+  condense fetch SRR...        FASTQs of SRA runs as Park et al. aligned them (to reproduce their GEO tables)
 
 The other subcommands are single pipeline stages, called by the workflow."""
 import argparse
@@ -215,11 +215,12 @@ def _check(src, fastq_check='off', out=None, park=False):
 
 
 def _user_settings(args, src):
-    """The user's settings: a config file's own keys, or the --settings file of a sample-sheet run; plus --park."""
+    """The user's settings: a config file's own keys, or the --settings file of a sample-sheet run; plus
+    --revised (or --park)."""
     path = src if src.suffix in ('.yaml', '.yml') else (Path(args.settings) if args.settings else None)
     cfg = (yaml.safe_load(path.read_text()) or {}) if path else {}
-    if args.park:
-        cfg['park'] = True
+    if args.park is not None:
+        cfg['park'] = args.park
     return cfg
 
 
@@ -360,7 +361,8 @@ def cmd_run(args):
     cmd = ['snakemake', '-s', str(PKG / 'workflow' / 'Snakefile'), '--configfile', str(cfg),
            '--directory', str(out), '--rerun-incomplete']
     conf = [f'qc={args.qc}'] if args.qc else []
-    conf += ['park=true'] if args.park and not is_sheet else []     # a sheet run has it in condense.yaml
+    # a sheet run has it in condense.yaml
+    conf += [f'park={str(args.park).lower()}'] if args.park is not None and not is_sheet else []
     conf += [f'refs={reference.refs_dir(args.refs)}'] if args.refs and not is_sheet else []
     cmd += ['--config', *conf] if conf else []
     if args.slurm:
@@ -431,11 +433,19 @@ STAGE_DEFAULTS = {'mm': ('reads', 'mm'), 'min_mapq': ('reads', 'min_mapq'), 'ded
 
 
 def _stage_defaults(args):
-    """Stage options not given on the command line take the settings' value (with --park, the Park preset's)."""
-    S = settings.resolve(park=getattr(args, 'park', False))
+    """Stage options not given on the command line take the settings' value (with --revised, the revised one)."""
+    S = settings.resolve(park=getattr(args, 'park', True))
     for dest, (sec, key) in STAGE_DEFAULTS.items():
         if getattr(args, dest, 0) is None:
             setattr(args, dest, S[sec] if key is None else S[sec][key])
+
+
+def mode(sp, park_help):
+    """--revised (park false) or --park (the default, accepted to be explicit); neither: park None, the settings'."""
+    g = sp.add_mutually_exclusive_group()
+    g.add_argument('--revised', dest='park', action='store_false', default=None,
+                   help='a few design changes to Park et al.\'s processing (settings `park: false`; docs/revised.md)')
+    g.add_argument('--park', dest='park', action='store_true', default=None, help=f'{park_help} (the default)')
 
 
 def main(argv=None):
@@ -462,7 +472,8 @@ def main(argv=None):
     s.add_argument('--refs', help='where genomes are kept (default $CONDENSE_REFS, else ~/.cache/condense-calc)')
     s.add_argument('--threads', type=int, default=1, help='for building an index (hg38_ucsc, own FASTA)')
     s.add_argument('--bowtie2', metavar='VERSION',
-                   help='also install this bowtie2 version (a conda env in REFS/envs), e.g. 2.4.1 for --park')
+                   help='also install this bowtie2 version (a conda env in REFS/envs), e.g. 2.4.1 (Park et al.\'s, '
+                        'the default)')
     s.set_defaults(func=cmd_reference)
 
     s = sub.add_parser('run', help='run everything (the default command)',
@@ -470,15 +481,15 @@ def main(argv=None):
     s.add_argument('sheet', help='sample sheet (condense init), or a config.yaml for multi-genome runs')
     s.add_argument('-o', '--outdir', help='output folder (default: results/ next to the sheet)')
     s.add_argument('-g', '--genome', default='hg38',
-                   help='hg38 (default), mm10, hg38_ucsc, or a FASTA file; with --park, hg38 means hg38_ucsc')
+                   help='hg38 (default: UCSC hg38.fa, Park et al.\'s; with --revised the NCBI no-alt set), mm10, '
+                        'hg38_ucsc, or a FASTA file')
     s.add_argument('--refs', help='where genomes are kept (default $CONDENSE_REFS, else ~/.cache/condense-calc)')
     s.add_argument('--nucleosomes', action='store_true',
                    help='also score every nucleosome (for deeply sequenced series; slower)')
     s.add_argument('--qc', choices=['off', 'default', 'verbose'], help='QC level (default: default)')
     s.add_argument('--settings', help='YAML file with further settings (docs/details.md, "All settings")')
-    s.add_argument('--park', action='store_true',
-                   help='reproduce the GEO tables of Park et al. 2025: their processing (settings `park: true`). '
-                        'Name series as on GEO (GM_..., mCD8T_...): Park mode scores GM and mCD8T without chrY')
+    mode(s, "Park et al. 2025's processing, which reproduces their GEO tables. Name series as on GEO "
+            '(GM_..., mCD8T_...): Park mode scores GM and mCD8T without chrY')
     s.add_argument('--cores', type=int,
                    help='local run: cores to use (default: the CPUs this process may use, e.g. a job\'s allocation)')
     s.add_argument('--slurm', action='store_true', help='submit each step as a Slurm job')
@@ -492,10 +503,11 @@ def main(argv=None):
     s.add_argument('-n', '--dry-run', action='store_true', help='show what would run')
     s.set_defaults(func=cmd_run)
 
-    # stage options left out take their value from settings.py (with --park: the Park preset), see _stage_defaults
+    # stage options left out take their value from settings.py (with --revised: the revised preset), see
+    # _stage_defaults
     def park(sp):
-        sp.add_argument('--park', action='store_true',
-                        help="Park et al. 2025's processing: the Park preset's defaults and Park's behaviour")
+        mode(sp, "Park et al. 2025's processing: the default settings and Park's behaviour")
+        sp.set_defaults(park=True)
 
     def reads(sp):
         sp.add_argument('--bam', required=True)

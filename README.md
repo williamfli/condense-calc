@@ -4,7 +4,7 @@ condense-calc turns condense-seq reads into condensability scores.
 - **You give:** paired-end FASTQs of the input and of the supernatant at each concentration of a titration, and the soluble fraction at each concentration.
 - **You get:** scores per 1 kb bin, 10 kb bin and nucleosome, c½ per 10 kb bin, and a QC report.
 
-It follows the processing of Park & Ha, Nature, 2025, with a few design changes; `--park` reproduces their processing ([what differs](docs/park.md)).
+By default it uses the processing of Park & Ha, Nature, 2025: from their reads, the tables are identical to their GEO tables. `--revised` makes a few design changes ([what and why](docs/revised.md)).
 
 ## Install
 
@@ -57,11 +57,12 @@ condense samples.tsv -n                 # check the sheet and show what would ru
 condense samples.tsv                    # run on this computer
 condense samples.tsv --slurm            # run on a Slurm cluster (optional: --account A --partition P --mail ADDRESS)
 condense samples.tsv -g mm10            # mouse (default: -g hg38)
+condense samples.tsv --revised          # with the design changes of docs/revised.md
 condense samples.tsv -g genome.fa       # another genome (FASTA file)
 condense deep.tsv --nucleosomes         # a sheet of deep series only (~300 M read pairs per library): also a score per nucleosome
 ```
 
-Rerun the same command to resume. The first run downloads the genome (hg38: ~7 GB) to `~/.cache/condense-calc` (set `CONDENSE_REFS` to use another folder); with `-g genome.fa` it builds a bowtie2 index next to the FASTA (hours for a mammalian genome).
+Rerun the same command to resume. The first run downloads the genome to `~/.cache/condense-calc` (set `CONDENSE_REFS` to use another folder) and installs bowtie2 2.4.1 there. For hg38 it also builds the bowtie2 index (~1.5 h with 8 cores; with `--revised`, NCBI's prebuilt index, ~7 GB). With `-g genome.fa` it builds an index next to the FASTA (hours for a mammalian genome).
 
 ## Results
 
@@ -69,7 +70,7 @@ In `results/` next to `samples.tsv` (or in `-o FOLDER`). Tables are gzipped tab-
 
 | file | contents |
 |---|---|
-| `tables/<series>_10kb_score.gtab.gz`, `tables/<series>_1kb_score.gtab.gz` | score per bin; higher is more condensable. One column per concentration, input excluded: `<series>_1`, `<series>_2`, ... in increasing order (as in `titration/<series>.tsv`). NA: no input reads in the bin |
+| `tables/<series>_10kb_score.gtab.gz`, `tables/<series>_1kb_score.gtab.gz` | score per bin; higher is more condensable. One column per concentration, input excluded: `<series>_1`, `<series>_2`, ... in increasing order (as in `titration/<series>.tsv`). Bins without input reads are left out (`--revised`: NA) |
 | `tables/<series>_10kb_4PL.gtab.gz` | c½ per bin: the concentration at which half of the bin's nucleosomes stay soluble (series with 5 or more concentrations, input included) |
 | `tables/<series>_score/` | score per nucleosome, one file per chromosome (`--nucleosomes`) |
 | `qc/report.html` | QC report; `qc/flags.tsv` lists values outside the expected range |
@@ -93,11 +94,11 @@ H1_NCP_PEG  0     1            fastq/SRR31626989_1.fastq.gz
 ```
 
 ```bash
-condense samples.tsv --park             # the first run also builds Park et al.'s hg38 index (~1.5 h)
+condense samples.tsv
 ```
 
 On a cluster, run `condense fetch` in a job (it prints an `sbatch` line to paste) and add `--slurm` to the last line.
 Name GM12878 and mCD8T series as on GEO (`GM_...`, `mCD8T_...`), so chrY is left out as Park et al. did.
-For GEO's file and column names too: [docs/park.md](docs/park.md).
+For GEO's file and column names too: [docs/geo.md](docs/geo.md).
 
 Settings, config files, steps, resources and tests: [docs/details.md](docs/details.md).

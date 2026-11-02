@@ -1,8 +1,8 @@
 #!/bin/bash
 # The same simulated experiment through a sample sheet (`condense SHEET`), compared with the
 # config run of tests/synthetic/run.sh: every table must hold the same values (only names differ).
-# Run from the repo root, in the condense-calc env, after run.sh OUTDIR [--park]:
-#   bash tests/synthetic/run_sheet.sh OUTDIR [--park]       (the same mode as that run)
+# Run from the repo root, in the condense-calc env, after run.sh OUTDIR [--revised]:
+#   bash tests/synthetic/run_sheet.sh OUTDIR [--revised]    (the same mode as that run)
 set -euo pipefail
 OUT=$(realpath "$1"); shift
 IN=$OUT/input

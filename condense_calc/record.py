@@ -2,7 +2,8 @@
 
 Mode, effective settings, condense-calc version and commit, bowtie2 version, references (with their
 fingerprints, reference.py), chromosomes per cell, and per library the bowtie2 version (line and number) and the
-FASTQ check (logs/align/). In Park mode, park_warnings() lists what keeps the tables from being Park's.
+FASTQ check (logs/align/). In Park mode (the default), park_warnings() lists what keeps the tables from being
+Park's.
 """
 import json
 import shutil
@@ -43,8 +44,8 @@ def park_warnings(settings, genomes):
     for g, v in genomes.items():
         preset = genome_info(v['fasta'], v['bowtie2_index'])['preset']
         if preset not in reference.PARK:
-            out.append(f"Park mode, but genome {g} ({v['fasta']}) is not a reference Park et al. used "
-                       f"({' or '.join(reference.PARK)}, by contig fingerprint): the tables will differ from GEO's")
+            out.append(f"genome {g} ({v['fasta']}) is not a reference Park et al. used ({' or '.join(reference.PARK)}, "
+                       "by contig fingerprint): tables made from their reads will differ from GEO's")
     return out
 
 
@@ -63,7 +64,7 @@ def write(path, settings, genomes, bt2_dir, chroms, names, logs='logs/align', wa
         libs[n] = {'bowtie2': _first_line(version),
                    'bowtie2_version': reference.parse_version(version.read_text()) if version.exists() else None,
                    'fastq_check': json.loads(check.read_text()) if check.exists() else None}
-    rec = {'mode': 'park' if settings['park'] else 'default',
+    rec = {'mode': 'park' if settings['park'] else 'revised',
            'condense_calc': code or code_version(),    # code: the version when the run started
            'settings': settings,
            'bowtie2': {'setting': settings['bowtie2'], 'version': bt2_version,

@@ -8,9 +8,9 @@ Kept, as in the original:
   - forward-strand reads only (flag 0x10 unset)
   - mapped (0x4 unset), mate mapped (0x8 unset), proper pair (0x2 set), POS >= 1
   - edit distance NM <= mm_cutoff (a read without an NM tag is kept)
-  - min_mapq: MAPQ of the forward read >= min_mapq. Default 10: below that bowtie2 picks among equally good
-    hits by a seed from the read's name and qualities, so where the fragment is counted depends on how the
-    FASTQ was written, not on the sample. Park mode: 0 (the original's filter is commented out).
+  - min_mapq: MAPQ of the forward read >= min_mapq. Default 0, no filter (the original's is commented out).
+    --revised: 10, since below that bowtie2 picks among equally good hits by a seed from the read's name and
+    qualities, so where the fragment is counted depends on how the FASTQ was written, not on the sample.
   - dedup: drop fragments with the same (chromosome, start, template length); off by default and in the original
 Fragment-length windows differ by stage, so they are applied later (see select()).
 """

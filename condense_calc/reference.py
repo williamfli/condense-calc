@@ -4,9 +4,9 @@ Presets, each identified by a fingerprint of its sequence names and lengths (md5
 columns of the .fai), which is checked whenever a preset is used:
   hg38       NCBI GRCh38 no-alt analysis set: no alt haplotypes; chrY PARs and duplicate arrays masked
   mm10       ENCODE mm10 no-alt analysis set (ENCFF309GLL): 66 sequences, chrY PAR masked. Park et al.
-             used the same index (4DN 4DNFI2493SDN), so Park mode keeps it
+             used the same index (4DN 4DNFI2493SDN), so Park mode (the default) keeps it
   hg38_ucsc  UCSC hg38.fa as distributed: 455 sequences with 261 alt haplotypes, nothing masked; Park
-             et al.'s human reference, used for hg38 in Park mode (settings.PARK_GENOMES)
+             et al.'s human reference, used for hg38 in Park mode, the default (settings.PARK_GENOMES)
 """
 import hashlib
 import json
