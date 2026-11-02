@@ -18,7 +18,7 @@ conda activate condense-calc
 
 ## Your data
 
-Put both reads of every library in a `fastq` folder. Read 2 has the name of read 1 with `_R2` for `_R1` (or `_2` for `_1`).
+Put the FASTQ files of every library in a `fastq` folder: two per library (paired-end), read 1 (`..._R1.fastq.gz`) and read 2 (`..._R2.fastq.gz`, the same name with `_R2` for `_R1`, or `_2` for `_1`).
 
 ```
 my_experiment/
