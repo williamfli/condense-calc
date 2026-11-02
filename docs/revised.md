@@ -1,7 +1,7 @@
 # The revised processing (`--revised`)
 
-By default condense-calc reproduces the processing of our paper (Park, Merino-Urteaga, Karwacki-Neisius, Carrizo, Athreya … Ha, Nature, 2025; GEO GSE252941; scripts:
-[spark159/condense-seq](https://github.com/spark159/condense-seq)): from our reads, the tables are
+By default condense-calc reproduces the processing of the condense-seq paper (Park, Merino-Urteaga, Karwacki-Neisius, Carrizo, Athreya … Ha, Nature, 2025; GEO GSE252941; scripts:
+[spark159/condense-seq](https://github.com/spark159/condense-seq)): from the paper's reads, the tables are
 identical to GEO's ([geo.md](geo.md)). `--revised` (or `park: false` in a settings or config file) changes a
 few design choices.
 
@@ -17,7 +17,7 @@ condense samples.tsv --revised
 | Bins without input reads (`score: {missing_as_nan}`) | dropped | written as NA rows | Every bin table has every bin, so bin tables from different runs line up row for row. |
 | Human reference (`-g hg38`) | UCSC hg38.fa (`hg38_ucsc`: 455 sequences, 261 of them alt haplotypes); the index is built on first use (~1.5 h) | NCBI GRCh38 no-alt analysis set, with NCBI's prebuilt index | Alt haplotypes are extra copies of parts of the main chromosomes, so bowtie2 sees reads there as multi-mapping. |
 | bowtie2 (`bowtie2`) | 2.4.1 (the paper's Reporting Summary), installed once as a conda env in the refs folder | 2.5.5, the environment's | The environment's version needs no second install. On the H1 libraries tested the two gave the same counts; on E14 rep 1, 2.5.5 differed by one count in 10 bins. |
-| FASTQ check (`fastq_check`) | `park`: stop on SRA Lite reads (base qualities all `?`) and on read names not in the form we aligned (`@<spot> 1:N:0:<index>`) | `lite`: stop on SRA Lite reads only | Read names change where bowtie2 puts reads with several equally good hits; with `--revised` almost all of these have MAPQ < 10 and are dropped. |
+| FASTQ check (`fastq_check`) | `park`: stop on SRA Lite reads (base qualities all `?`) and on read names not in the form the paper aligned (`@<spot> 1:N:0:<index>`) | `lite`: stop on SRA Lite reads only | Read names change where bowtie2 puts reads with several equally good hits; with `--revised` almost all of these have MAPQ < 10 and are dropped. |
 | Nucleosome calling: positions with equal counts | in the order Python 2's sort left them | taken in order of position | The original order is a side effect of Python 2's sort, not a rule. |
 | Fragment centre | the original formula | from the fragment's two ends | The original formula is one base off for some odd-length fragments and wraps a centre before position 0 into the last bin. bowtie2's end-to-end paired alignment produces neither case, so no output changes. |
 | chrY, when `chroms` is not given | dropped for GM (GM12878) and mCD8T, matched by the first part of the series or cell name (`GM_...`, `mCD8T_...`) | kept: all main chromosomes | The original driver did this by name. `--revised` does not guess from names; give `chroms` to drop chrY. |
