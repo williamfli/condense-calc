@@ -75,7 +75,7 @@ In `results/` next to `samples.tsv` (or in `-o FOLDER`). Tables are gzipped tab-
 | `tables/<series>_10kb_score.gtab.gz`, `tables/<series>_1kb_score.gtab.gz` | score per bin; higher is more condensable. One column per concentration, input excluded: `<series>_1`, `<series>_2`, ... in increasing order (as in `titration/<series>.tsv`). Bins without input reads are left out (`--revised`: NA) |
 | `tables/<series>_10kb_4PL.gtab.gz` | c½ per bin: the concentration at which half of the bin's nucleosomes stay soluble (series with 5 or more concentrations, input included) |
 | `tables/<series>_score/` | score per nucleosome, one file per chromosome (`--nucleosomes`) |
-| `qc/report.html` | QC report; `qc/flags.tsv` lists values outside the expected range |
+| `qc/report.html` | QC report ([example](docs/qc_example.md)); `qc/flags.tsv` lists values outside the expected range |
 | `run_info.json` | settings, references, condense-calc and bowtie2 versions |
 
 ## Reproduce the GEO tables of Park et al.
