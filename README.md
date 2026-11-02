@@ -62,6 +62,8 @@ condense samples.tsv -g genome.fa       # another genome (FASTA file)
 condense deep.tsv --nucleosomes         # a sheet of deep series only (~300 M read pairs per library): also a score per nucleosome
 ```
 
+Neither the species nor the sequencing depth is detected from the reads. Give `-g` for any genome other than human, and `--nucleosomes` for deep series. Both apply to every series in the sheet, so put mouse and human series, or deep and shallow ones, in separate sheets.
+
 Rerun the same command to resume. The first run downloads the genome to `~/.cache/condense-calc` (set `CONDENSE_REFS` to use another folder) and installs bowtie2 2.4.1 there. For hg38 it also builds the bowtie2 index (~1.5 h with 8 cores; with `--revised`, NCBI's prebuilt index, ~7 GB). With `-g genome.fa` it builds an index next to the FASTA (hours for a mammalian genome).
 
 ## Results
