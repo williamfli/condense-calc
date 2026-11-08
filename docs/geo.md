@@ -29,3 +29,9 @@ Tables tested identical to GEO's (decompressed): `H1_NCP_PEG_2rep` (10 kb), `H1_
 `H1_NCP_sp_1rep_deep` and `H1_NCP_sp_2rep_deep` (1 kb and per nucleosome), `GM_NCP_sp_1rep` and `GM_NCP_sp_2rep`
 (10 kb), `GM_NCP_sp_1rep_deep` and `GM_NCP_sp_2rep_deep` (1 kb and per nucleosome), `E14_NCP_sp_1rep` and
 `E14_NCP_sp_2rep` (10 kb; GEO names these columns by library, so after renaming its header line).
+
+Not identical: `mCD8T_DFMO_NCP_sp_2rep` (10 kb), checked for point 8 from SRR31626776, SRR31626777, SRR31627081 and
+SRR31627082. Against GEO's column, r = 0.99975: 95% of bins agree within 1e-5, about 5% differ by roughly one read,
+and GEO has one bin more. The same run on macOS (Apple silicon, bowtie2 2.4.1 under Rosetta 2) and on Linux gave
+byte-identical bin counts and 10 kb and 1 kb tables, so the difference comes from the reads: the SRA runs of this
+mouse CD8 series seem to differ slightly from those the paper aligned.
