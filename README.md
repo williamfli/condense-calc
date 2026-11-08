@@ -20,7 +20,7 @@ To update later, in `condense-calc`: `git pull && conda env update -f environmen
 
 ## Your data
 
-Put the FASTQ files of every library in a `fastq` folder: two per library (paired-end), read 1 (`..._R1.fastq.gz`) and read 2 (`..._R2.fastq.gz`, the same name with `_R2` for `_R1`, or `_2` for `_1`).
+Each experiment gets its own folder, separate from the `condense-calc` folder you installed from. In it, a `fastq` folder holds two files per library (paired-end): read 1 (`..._R1.fastq.gz`) and read 2 (`..._R2.fastq.gz`, the same name with `_R2` for `_R1`, or `_2` for `_1`). Results are written next to them:
 
 ```
 my_experiment/
@@ -32,27 +32,44 @@ my_experiment/
 └── results/                   written by condense
 ```
 
-```bash
-cd my_experiment
-condense init fastq --series H1_sp      # writes samples.tsv, one row per read-1 file
-```
+1. Make the folders and put the FASTQ files in `fastq` (copy, move or download them there):
 
-Open `samples.tsv` and fill in `conc` and `fraction` (keep the tabs between columns):
+   ```bash
+   mkdir -p ~/my_experiment/fastq
+   cp /path/to/your/reads/*.fastq.gz ~/my_experiment/fastq/
+   ```
 
-```
-series   conc    fraction  fastq
-H1_sp    0       1         fastq/input_R1.fastq.gz
-H1_sp    0.794   0.105     fastq/sp8_L001_R1.fastq.gz
-H1_sp    0.794   0.105     fastq/sp8_L002_R1.fastq.gz
-```
+2. In a new terminal, activate the environment (once per terminal) and go into the experiment folder:
 
-- `series`: name of one titration (letters, digits, `_`, `-`). Each series needs an input row.
-- `conc`: concentration of the agent, any unit. 0 for the input.
-- `fraction`: soluble fraction measured at that concentration, with all the digits you have. 1 (or empty) for the input.
-- `fastq`: read-1 file. Rows with the same series, rep and conc are lanes of one library.
-- Optional columns: `rep` (replicate number; the series is then named `<series>_rep<N>`), `agent` (e.g. `PEG`, `Ca`), `fastq2` (read-2 file, if not named as above).
+   ```bash
+   conda activate condense-calc
+   cd ~/my_experiment
+   ```
+
+3. Write the sample sheet, one row per read-1 file. `--series` names the titration:
+
+   ```bash
+   condense init fastq --series H1_sp
+   ```
+
+4. Open `samples.tsv` in a text editor or a spreadsheet and fill in `conc` and `fraction` (keep the tabs between columns; from a spreadsheet, save as tab-separated text):
+
+   ```
+   series   conc    fraction  fastq
+   H1_sp    0       1         fastq/input_R1.fastq.gz
+   H1_sp    0.794   0.105     fastq/sp8_L001_R1.fastq.gz
+   H1_sp    0.794   0.105     fastq/sp8_L002_R1.fastq.gz
+   ```
+
+   - `series`: name of one titration (letters, digits, `_`, `-`). Each series needs an input row.
+   - `conc`: concentration of the agent, any unit. 0 for the input.
+   - `fraction`: soluble fraction measured at that concentration, with all the digits you have. 1 (or empty) for the input.
+   - `fastq`: read-1 file. Rows with the same series, rep and conc are lanes of one library.
+   - Optional columns: `rep` (replicate number; the series is then named `<series>_rep<N>`), `agent` (e.g. `PEG`, `Ca`), `fastq2` (read-2 file, if not named as above).
 
 ## Run
+
+From the experiment folder, with the environment active:
 
 ```bash
 condense samples.tsv -n                 # check the sheet and show what would run
