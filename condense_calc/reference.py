@@ -11,9 +11,11 @@ columns of the .fai), which is checked whenever a preset is used:
 import hashlib
 import json
 import os
+import platform
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 PKG = Path(__file__).resolve().parent
@@ -144,6 +146,14 @@ def bowtie2_version(folder=None):
     return parse_version(out) or _conda_version(Path(folder) if folder else Path(shutil.which('bowtie2') or '.').parent)
 
 
+def _intel_build_needed(spec, system=None, machine=None):
+    """True on a Mac with Apple silicon for a bowtie2 version older than 2.5.4: bioconda has Apple-silicon
+    (osx-arm64) builds only from 2.5.4 on, Intel (osx-64) builds of every version."""
+    system, machine = system or platform.system(), machine or platform.machine()
+    return (system == 'Darwin' and machine == 'arm64'
+            and tuple(int(x) for x in str(spec).split('.')) < (2, 5, 4))
+
+
 def ensure_bowtie2(spec, refs=None):
     """Folder of the bowtie2 to run (None: PATH). A version is installed once, with mamba or conda, as
     <refs>/envs/bowtie2-<version>; only bowtie2 runs from it (samtools stays this environment's)."""
@@ -158,8 +168,16 @@ def ensure_bowtie2(spec, refs=None):
         env = Path(d).parent
         print(f'Installing bowtie2 {spec} into {env}; this happens once.', flush=True)
         env.parent.mkdir(parents=True, exist_ok=True)
+        cenv = None
+        if _intel_build_needed(spec):
+            print(f'bowtie2 {spec} has no Apple-silicon build: installing the Intel one, which runs under Rosetta 2.',
+                  flush=True)
+            if subprocess.run(['arch', '-x86_64', '/usr/bin/true'], capture_output=True).returncode:
+                raise SystemExit('Rosetta 2 is needed: install it with  softwareupdate --install-rosetta '
+                                 '--agree-to-license  and run again')
+            cenv = dict(os.environ, CONDA_SUBDIR='osx-64')
         subprocess.run([conda, 'create', '-y', '-q', '-p', str(env), '-c', 'conda-forge', '-c', 'bioconda',
-                        f'bowtie2={spec}'], check=True)
+                        f'bowtie2={spec}'], check=True, env=cenv)
     if d is not None and VERSION.fullmatch(str(spec)) and bowtie2_version(d) != str(spec):
         raise SystemExit(f'{d}/bowtie2 is version {bowtie2_version(d)}, not {spec}')
     return d
@@ -210,7 +228,8 @@ def ensure(genome, refs=None, threads=1):
         if not (Path(f'{fasta}.fai').exists() and _index_ok(index)):
             print(f'Downloading {genome} (FASTA and bowtie2 index) into {d}; this happens once.', flush=True)
             d.parent.mkdir(parents=True, exist_ok=True)
-            subprocess.run(['bash', str(PKG / 'get_reference.sh'), str(d.parent), str(threads), genome], check=True)
+            subprocess.run(['bash', str(PKG / 'get_reference.sh'), str(d.parent), str(threads), genome], check=True,
+                           env=dict(os.environ, PYTHON=sys.executable))
             _check_preset(genome, fasta)
         return genome, str(fasta), str(index)
     fasta = Path(genome).expanduser().resolve()

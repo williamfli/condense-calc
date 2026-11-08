@@ -16,7 +16,6 @@ dependencies:
   - samtools=1.21
   - sra-tools=3.4         # condense fetch: prefetch, fasterq-dump (3.4.1 tested)
   - pigz
-  - aria2                 # get_reference.sh: 16 connections (encode-public gives ~0.35 MB/s per connection)
   - snakemake=8
   - snakemake-executor-plugin-slurm
   - pytest

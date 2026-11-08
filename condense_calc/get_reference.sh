@@ -6,21 +6,16 @@
 #            (~4 GB); the same index files as 4DN 4DNFI2493SDN, Park et al.'s "4D_mm10", used if ENCODE fails.
 # hg38_ucsc: UCSC hg38.fa as distributed (455 sequences, with alts), Park et al.'s human reference; the index is
 #            built here (~1.5 h with 8 threads, ~8 GB of memory).
-# Downloads use aria2c (16 connections) when it is installed, else wget: one connection to encode-public gives
-# ~0.35 MB/s.
+# Downloads use 16 connections (condense_calc/download.py; one connection to encode-public gives ~0.35 MB/s).
+# Runs with macOS's bash 3.2 too.
 set -euo pipefail
-OUT=$(realpath "$1"); THREADS=$2; shift 2
+mkdir -p "$1"; OUT=$(cd "$1" && pwd -P); THREADS=$2; shift 2
+PYTHON=${PYTHON:-python}; HERE=$(cd "$(dirname "$0")" && pwd -P)
 NCBI=https://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/001/405/GCA_000001405.15_GRCh38/seqs_for_alignment_pipelines.ucsc_ids
 S3=https://encode-public.s3.amazonaws.com
 DN=https://4dn-open-data-public.s3.amazonaws.com/fourfront-webprod/files/63e22058-79c6-4e24-8231-ca4afac29dda
-get() {   # get URL MD5: download into the current folder (resuming a partial file), then check the md5
-  local f; f=$(basename "$1")
-  if command -v aria2c >/dev/null; then
-    aria2c -q -c -x 16 -s 16 -k 8M --file-allocation=none --auto-file-renaming=false -o "$f" "$1" || return 1
-  else
-    wget -q -c "$1" || return 1
-  fi
-  echo "$2  $f" | md5sum -c --quiet - || { echo "md5 mismatch, deleted: $f" >&2; rm -f "$f"; return 1; }
+get() {   # get URL MD5: download into the current folder (resuming a partial file), md5-checked
+  "$PYTHON" "$HERE/download.py" "$1" "$2" 16
 }
 link_index() {   # name the extracted index files <genome>.*.bt2
   for f in $(find . -name '*.bt2' ! -name "$G.*"); do

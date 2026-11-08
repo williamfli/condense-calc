@@ -3,7 +3,7 @@
 #   bash tests/synthetic/run.sh OUTDIR [condense-calc run options, e.g. --qc verbose, or --revised]
 # Then: python tests/synthetic/check_truth.py OUTDIR. tests/equivalence/run.sh runs it in the default (Park) mode.
 set -euo pipefail
-OUT=$(realpath -m "$1"); shift
+mkdir -p "$1"; OUT=$(cd "$1" && pwd -P); shift
 mkdir -p "$OUT"
 [ -f "$OUT/input/samples.tsv" ] || python tests/synthetic/simulate.py "$OUT/input" --seed 0
 cat > "$OUT/input/config.yaml" <<CFG

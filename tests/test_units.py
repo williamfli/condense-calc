@@ -767,3 +767,119 @@ def test_fetch_commands(tmp_path, monkeypatch):
     monkeypatch.setattr(cli, '_on_login_node', lambda: False)
     with pytest.raises(SystemExit, match='1 of 2 runs failed: SRR2'):
         cli.main(['fetch', 'SRR1', 'SRR2', '-o', str(tmp_path)])
+
+
+def test_intel_bowtie2_on_apple_silicon(tmp_path, monkeypatch):
+    # bioconda has Apple-silicon builds of bowtie2 only from 2.5.4: older versions install as Intel (Rosetta 2)
+    from condense_calc import reference
+    need = reference._intel_build_needed
+    assert need('2.4.1', 'Darwin', 'arm64') and need('2.5.3', 'Darwin', 'arm64')
+    assert not need('2.5.4', 'Darwin', 'arm64') and not need('2.5.5', 'Darwin', 'arm64')
+    assert not need('2.4.1', 'Darwin', 'x86_64') and not need('2.4.1', 'Linux', 'x86_64')
+    env = tmp_path / 'envs/bowtie2-2.4.1'
+    calls = []
+
+    def run(cmd, **k):
+        calls.append((cmd, (k.get('env') or {}).get('CONDA_SUBDIR')))
+        if cmd[1] == 'create':
+            (env / 'bin').mkdir(parents=True)
+            (env / 'bin/bowtie2').touch()
+        return type('R', (), {'stdout': f'{env}/bin/bowtie2-align-s version 2.4.1\n', 'returncode': 0})()
+    monkeypatch.setattr(reference.subprocess, 'run', run)
+    monkeypatch.setattr(reference.platform, 'system', lambda: 'Darwin')
+    monkeypatch.setattr(reference.platform, 'machine', lambda: 'arm64')
+    monkeypatch.setenv('MAMBA_EXE', '/x/mamba')
+    assert reference.ensure_bowtie2('2.4.1', tmp_path) == str(env / 'bin')
+    assert calls[0] == (['arch', '-x86_64', '/usr/bin/true'], None)
+    assert calls[1][0][1] == 'create' and calls[1][1] == 'osx-64'
+    # without Rosetta 2: say how to install it
+    calls.clear()
+    monkeypatch.setattr(reference.subprocess, 'run', lambda cmd, **k: type('R', (), {'returncode': 1})())
+    with pytest.raises(SystemExit, match='softwareupdate --install-rosetta'):
+        reference.ensure_bowtie2('2.4.2', tmp_path)
+
+
+def test_local_cores_without_sched_getaffinity(monkeypatch):
+    # macOS has no os.sched_getaffinity
+    import argparse
+    from condense_calc import cli
+    assert cli._local_cores(argparse.Namespace(cores=3)) == 3
+    monkeypatch.delattr(cli.os, 'sched_getaffinity', raising=False)
+    assert cli._local_cores(argparse.Namespace(cores=None)) == (cli.os.cpu_count() or 1)
+
+
+@pytest.fixture
+def http_server(tmp_path):
+    """A local HTTP server with range requests, serving tmp_path/www; yields (base URL, request log)."""
+    import http.server
+    import threading
+    www = tmp_path / 'www'
+    www.mkdir()
+    log = []
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            f = www / self.path.lstrip('/')
+            if not f.exists():
+                self.send_error(404)
+                return
+            data = f.read_bytes()
+            rng = self.headers.get('Range')
+            log.append(rng)
+            if rng and getattr(self.server, 'ranges', True):
+                a, b = (int(x) for x in rng.split('=')[1].split('-'))
+                b = min(b, len(data) - 1)
+                self.send_response(206)
+                self.send_header('Content-Range', f'bytes {a}-{b}/{len(data)}')
+                data = data[a:b + 1]
+            else:
+                self.send_response(200)
+            self.send_header('Content-Length', str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def log_message(self, *a):
+            pass
+    srv = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    yield f'http://127.0.0.1:{srv.server_address[1]}', www, log, srv
+    srv.shutdown()
+
+
+def test_download(tmp_path, monkeypatch, http_server):
+    import hashlib
+    from condense_calc import download
+    base, www, log, srv = http_server
+    monkeypatch.setattr(download, 'CHUNK', 1000)
+    monkeypatch.setattr(download.time, 'sleep', lambda s: None)
+    data = np.random.default_rng(0).integers(0, 256, 10_500, dtype=np.uint8).tobytes()
+    (www / 'g.fa.gz').write_bytes(data)
+    md5 = hashlib.md5(data).hexdigest()
+    out = tmp_path / 'out'
+    out.mkdir()
+    # in ranges, several connections, in order
+    assert download.download(f'{base}/g.fa.gz', md5, 4, out) == out / 'g.fa.gz'
+    assert (out / 'g.fa.gz').read_bytes() == data and not (out / 'g.fa.gz.part').exists()
+    assert len(log) == 1 + 11
+    # already there: checked, not fetched again
+    log.clear()
+    download.download(f'{base}/g.fa.gz', md5, 4, out)
+    assert log == []
+    # resume: whole ranges of the partial file are kept (a broken last range is fetched again)
+    (out / 'g.fa.gz').unlink()
+    (out / 'g.fa.gz.part').write_bytes(data[:3500])
+    download.download(f'{base}/g.fa.gz', md5, 4, out)
+    assert (out / 'g.fa.gz').read_bytes() == data
+    assert sorted(log[1:]) == sorted(f'bytes={a}-{min(a + 999, 10499)}' for a in range(3000, 10500, 1000))
+    # a server without ranges: one connection
+    (out / 'g.fa.gz').unlink()
+    srv.ranges = False
+    download.download(f'{base}/g.fa.gz', md5, 4, out)
+    assert (out / 'g.fa.gz').read_bytes() == data
+    srv.ranges = True
+    # md5 mismatch: deleted, exit 2; missing file: exit 1 at once
+    (out / 'g.fa.gz').unlink()
+    monkeypatch.chdir(out)
+    assert download.main([f'{base}/g.fa.gz', '0' * 32, '4']) == 2
+    assert not (out / 'g.fa.gz').exists() and not (out / 'g.fa.gz.part').exists()
+    assert download.main([f'{base}/nothing.gz', md5]) == 1

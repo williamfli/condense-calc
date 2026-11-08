@@ -14,8 +14,9 @@ git clone https://github.com/williamfli/condense-calc.git
 cd condense-calc
 conda env create -f environment.yml
 conda activate condense-calc
-# to update later, in condense-calc: git pull && conda env update -f environment.yml
 ```
+
+To update later, in `condense-calc`: `git pull && conda env update -f environment.yml`. Linux and macOS; on a Mac with Apple silicon the default mode's bowtie2 2.4.1 runs under Rosetta 2 (if it is missing, condense-calc says how to install it).
 
 ## Your data
 

@@ -8,8 +8,8 @@
 # a8d2dd8); PYTHON2 defaults to `python2` on the PATH. Prints a table that must show every row
 # identical, and exits 1 otherwise.
 set -euo pipefail
-OUT=$(realpath -m "$1")
-ORIG=$(realpath "$2")/prepro_scripts
+mkdir -p "$1"; OUT=$(cd "$1" && pwd -P)
+ORIG=$(cd "$2" && pwd -P)/prepro_scripts
 PY2=${3:-$(command -v python2)}
 PY3=${PY3:-$(command -v python3)}   # set PY3 if python3 on the PATH is not the condense-calc env
 PIPE=$(pwd)

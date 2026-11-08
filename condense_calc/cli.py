@@ -253,7 +253,11 @@ CONTROLLER = 'CONDENSE_CONTROLLER'     # set in the controller job, which runs t
 
 def _local_cores(args):
     """--cores, else the CPUs this process may use (in a Slurm job: its allocation, not the node)."""
-    return args.cores or len(os.sched_getaffinity(0))
+    if args.cores:
+        return args.cores
+    if hasattr(os, 'sched_getaffinity'):   # Linux; not on macOS
+        return len(os.sched_getaffinity(0))
+    return os.cpu_count() or 1
 
 
 def _local_mem_mb(cores):

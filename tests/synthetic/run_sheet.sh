@@ -4,7 +4,7 @@
 # Run from the repo root, in the condense-calc env, after run.sh OUTDIR [--revised]:
 #   bash tests/synthetic/run_sheet.sh OUTDIR [--revised]    (the same mode as that run)
 set -euo pipefail
-OUT=$(realpath "$1"); shift
+OUT=$(cd "$1" && pwd -P); shift
 IN=$OUT/input
 # sheet from the simulation's sample sheet and titration table: series SIM (shallow) and SIM_deep
 awk -F'\t' 'NR==FNR { if (FNR > 1) { conc[$1] = $2; frac[$1] = $3 }; next }
