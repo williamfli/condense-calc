@@ -883,3 +883,77 @@ def test_download(tmp_path, monkeypatch, http_server):
     assert download.main([f'{base}/g.fa.gz', '0' * 32, '4']) == 2
     assert not (out / 'g.fa.gz').exists() and not (out / 'g.fa.gz.part').exists()
     assert download.main([f'{base}/nothing.gz', md5]) == 1
+
+
+# ---------------------------------------------------------------- QC panels after ED Fig. 2 (ed2.py, annotations.py)
+
+def test_annotation_match():
+    from condense_calc import annotations as A
+    assert A.match('GM', 'hg38') == 'GM12878_hg38'
+    assert A.match('GM12878_NCP_sp', 'hg38') == 'GM12878_hg38'
+    assert A.match('H1', 'hg38') is None                     # no built-in H1 model: a BED file
+    assert A.match('E14', 'mm10') == A.match('mESC_deep_NCP_sp', 'mm10') == 'mESC_E14_mm10'
+    assert A.match('HP1a', 'hg38') is None and A.match('GMX', 'hg38') is None
+    assert A.match('GM', 'mm10') is None                     # the genome must match too
+    assert A.build_of('hg38_ucsc') == 'hg38' and A.build_of('mm10') == 'mm10' and A.build_of('sim') is None
+
+
+def test_annotation_resolve(tmp_path):
+    from condense_calc import annotations as A
+    st, key, band, msg = A.resolve('auto', 'GM', 'hg38', tmp_path)
+    assert key == 'GM12878_hg38' and st == str(tmp_path / 'annotations' / 'GM12878_hg38' / 'ENCFF140VIG.bed.gz')
+    assert band == str(tmp_path / 'annotations' / 'cytoband_hg38' / 'cytoBand.txt.gz') and msg is None
+    st, key, band, msg = A.resolve('auto', 'mCD8T:WT', 'mm10', tmp_path)
+    assert st is None and band is None and 'no built-in' in msg
+    assert A.resolve('my.bed', 'X', None, tmp_path)[:3] == ('my.bed', None, None)
+    assert A.resolve({'GM': 'auto'}, 'H1', 'hg38', tmp_path) == (None, None, None, None)
+    assert A.resolve(None, 'GM', 'hg38', tmp_path) == (None, None, None, None)
+    assert all(len(e['md5']) == 32 for e in list(A.STATES.values()) + list(A.CYTOBANDS.values()))
+
+
+def test_states_reading_and_order(tmp_path):
+    from condense_calc import annotations as A, ed2
+    p = tmp_path / 's.bed'
+    p.write_text('chr1\t0\t100\t10_B\nchr2\t0\t50\t1_A\nchr1\t100\t250\t2_C\textra\n')
+    st = A.read_states(p, 'chr1')
+    assert st == [(0, 100, '10_B'), (100, 250, '2_C')]
+    assert A.state_order(None, {'10_B', '2_C', '1_A'}) == [('1_A', '1_A'), ('2_C', '2_C'), ('10_B', '10_B')]
+    assert A.state_order('GM12878_hg38', {'Quies', 'Tss'}) == [('Tss', 'Active TSS'), ('Quies', 'Quiescent')]
+    # half-open [start, end), as Interval_dict
+    assert list(ed2.categorize([0, 99, 100, 249, 250, -1], st)) == ['10_B', '10_B', '2_C', '2_C', None, None]
+
+
+def test_ed2_rebin_smooth_mask():
+    from condense_calc import ed2
+    # 10 kb values at 0, 10k, 20k, 30k, 40k on a 5 kb grid; 25 kb bins: [0, 25k) = cells 0-4 = 1,1,2,2,3
+    v = ed2.rebin25(np.array([1., 2, 3, 4, 5]), np.array([0, 10000, 20000, 30000, 40000]), 50000)
+    assert v[0] == pytest.approx((1 + 1 + 2 + 2 + 3) / 5) and v[1] == pytest.approx((3 + 4 + 4 + 5 + 5) / 5)
+    assert np.isnan(v[2])
+    x = np.array([1., np.nan, 3, 5])
+    assert ed2.smooth(x, 3).tolist() == pytest.approx([1, 2, 4, 4])
+    assert ed2.smooth(x, 81).tolist() == pytest.approx([3, 3, 3, 3])     # shorter than the window
+    y = np.random.default_rng(0).normal(size=300)
+    assert ed2.smooth(y, 81)[100] == pytest.approx(y[60:141].mean())
+    assert ed2.mask_spans([[0, 2], [5, 6], [30, 31]], gap=10) == [[0, 6], [30, 31]]
+
+
+def test_ed2_stats():
+    from scipy import stats
+    from condense_calc import ed2
+    x, y = np.array([1., 2, 3, 4]), np.array([2., 4, 6, 8, 10])
+    s = math.sqrt((3 * x.std() ** 2 + 4 * y.std() ** 2) / 7)
+    assert ed2.cohen_abs(x, y) == pytest.approx(abs(x.mean() - y.mean()) / s)
+    assert ed2.welch_p(x, y) == pytest.approx(stats.ttest_ind(x, y, equal_var=False)[1])
+    # the bin score of summed counts is the pipeline's (score.py, bins without input dropped)
+    t, c = np.array([0., 5, 9, 3]), np.array([4., 0, 6, 2])
+    T, C = 1 + 10 + 4, 5 + 7 + 3
+    want = [-math.log((1 / T) / (5 / C)) - math.log(0.5), np.nan, -math.log((10 / T) / (7 / C)) - math.log(0.5),
+            -math.log((4 / T) / (3 / C)) - math.log(0.5)]
+    assert ed2.bin_score(t, c, 0.5) == pytest.approx(want, nan_ok=True)
+
+
+def test_ed2_period():
+    from condense_calc import ed2
+    x = np.arange(146)
+    prof = 0.3 - 1e-5 * (x - 73) ** 2 + 0.01 * np.cos(2 * np.pi * x / 10.4)    # envelope + 10.4 bp
+    assert ed2.period(prof) == pytest.approx(10.4, abs=0.2)

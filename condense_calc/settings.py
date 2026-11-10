@@ -28,6 +28,10 @@ DEFAULTS = {
     'bdata': False,                     # deep series: also sliding-window areas (bindata_ver3.py); no table uses them
     'qc': 'default',
     'qc_thresholds': {},
+    'states': None,                     # chromatin states for QC panels g-i: auto, a BED file, or {cell: either}
+                                        # (annotations.py); none: those panels are not drawn
+    'cytoband': None,                   # cytogenetic bands masked in QC panel d: auto or a file (UCSC cytoBand);
+                                        # none: assembly gaps; states: auto also fetches the genome's bands
     'max_runtime': 3 * 24 * 60,         # minutes; the longest time limit a retried step may ask for
 }
 REVISED = {
@@ -180,6 +184,12 @@ def resolve(config=None, park=None):
     out['bin_sizes'] = [_number(x, 'bin_sizes', int) for x in b]
     if min(out['bin_sizes']) <= 0:
         raise SettingsError(f'bin_sizes must be positive, not {b!r}')
+    for key in ('states', 'cytoband'):
+        v = out[key]
+        if v is not None and not isinstance(v, str) and not (key == 'states' and isinstance(v, dict) and
+                                                              all(isinstance(x, str) for x in v.values())):
+            raise SettingsError(f'{key} must be auto or a file' + (', or a mapping cell: auto|file' if key == 'states'
+                                                                     else '') + f', not {v!r}')
     from .qc import THRESHOLDS
     for k in out['qc_thresholds']:
         if k not in THRESHOLDS:

@@ -113,12 +113,45 @@ for s, g in SERIES.items():
 REP_GROUPS = {k: sorted(v) for k, v in REP_GROUPS.items() if len(v) >= 2}
 QC_KB = KB[max(BINS)]
 
+# QC panels after Extended Data Fig. 2 (ed2.py): bins summed to 10 kb for panel d, chromosome 1, chromatin states
+from condense_calc import annotations
+ED2_BIN = 10000 if 10000 in BINS else max([b for b in BINS if 10000 % b == 0], default=None)
+REFS = P(config['refs']) if config.get('refs') else str(reference.refs_dir())
+ANNOT, ANNOT_WARNINGS, ANNOT_FILES = {}, [], set()
+for c, v in CELLS.items():
+    build = annotations.build_of(v['genome'], GENOMES[v['genome']]['fasta'])
+    st, key, band, msg = annotations.resolve(SETTINGS['states'], c, build, REFS)
+    cb = SETTINGS['cytoband']
+    if cb:
+        auto_band = annotations.CYTOBANDS.get(build)
+        band = (str(Path(REFS, 'annotations', auto_band['file'])) if auto_band else None) if str(cb).lower() == 'auto' \
+            else P(cb)
+    ANNOT[c] = {'states': P(st) if st and not key else st, 'key': key, 'cytoband': band}
+    ANNOT_WARNINGS += [msg] if msg else []
+    # built-in files, fetched by rule fetch_annotation
+    ANNOT_FILES |= {e['file'] for e in list(annotations.STATES.values()) + list(annotations.CYTOBANDS.values())
+                    if str(Path(REFS, 'annotations', e['file'])) in (st, band)}
+
+
+def ed2_chrom(series):
+    chroms = chroms_of(SERIES[series].iloc[0]['name'])
+    return next((c for c in ('chr1', '1') if c in chroms), chroms[0])
+
+
+def ed2_annot(series):
+    return ANNOT[SAMPLES.loc[SERIES[series].iloc[0]['name'], 'cell']]
+
+
+def last_point(series):
+    return SERIES[series].iloc[-1]['name']
+
 wildcard_constraints:
     name='|'.join(map(re.escape, SAMPLES.index)),
     series='|'.join(map(re.escape, SERIES)),
     kb='|'.join(KB.values()),
     chrom='|'.join(map(re.escape, ALL_CHROMS)),
     group='|'.join(map(re.escape, REP_GROUPS)) or 'NONE',
+    annot_file='|'.join(map(re.escape, sorted(ANNOT_FILES))) or 'NONE',
 
 
 def final_outputs():
@@ -310,10 +343,10 @@ rule fit:
 USED_GENOMES = {g: GENOMES[g] for g in sorted({v['genome'] for v in CELLS.values()})}
 
 onstart:
-    for w in record.park_warnings(SETTINGS, USED_GENOMES) + CHRY_WARNINGS:
+    for w in record.park_warnings(SETTINGS, USED_GENOMES) + CHRY_WARNINGS + ANNOT_WARNINGS:
         print(f'WARNING: {w}', file=sys.stderr)
 
-localrules: run_info
+localrules: run_info, fetch_annotation
 CODE_VERSION = record.code_version()    # when the run starts: the controller parses this file once
 
 rule run_info:
@@ -368,14 +401,86 @@ rule qc_replicates:
     resources: mem_mb=lambda w, attempt: 8000 * attempt, runtime=lambda w, attempt: rt(60, attempt)
     shell: f'{CLI} qc-replicates --group {{wildcards.group}} {{params.args}} -o {{output.json}} --png {{output.png}}'
 
+rule fetch_annotation:
+    # a built-in chromatin-state annotation or cytoband file (annotations.py), md5-checked; once per refs folder
+    output: str(Path(REFS, 'annotations', '{annot_file}'))
+    shell: f'{CLI} fetch-annotation {{wildcards.annot_file}} --folder {Path(REFS, "annotations")}'
+
+rule ed2_windows:
+    # deep series with chromatin states: 171 bp windows every 25 bp on one chromosome (panel h)
+    input:
+        bam='bam/{name}.bam', bai='bam/{name}.bam.bai',
+        peaks=lambda w: f'peaks/{input_of(w.name)}_{w.chrom}_peak.gtab.gz',
+    output: 'qc/ed2/windows/{name}_{chrom}_Bdata.gtab.gz'
+    params: fasta=lambda w: fasta_of(w.name)
+    resources: mem_mb=lambda w, attempt: 16000 * attempt, runtime=lambda w, attempt: rt(60, attempt)
+    shell:
+        f'{CLI} areas --bam {{input.bam}} --fasta {{params.fasta}} --chrom {{wildcards.chrom}} '
+        f'--peaks {{input.peaks}} {READ_OPTS} --bdata-out {{output}}'
+
+
+def ed2_windows(series):
+    if series not in DEEP_SERIES or not ed2_annot(series)['states']:
+        return []
+    c = ed2_chrom(series)
+    names = [SERIES[series].iloc[0]['name'], last_point(series)]
+    if BDATA:
+        return [f'areas/{n}_{c}_171win25step_Bdata.gtab.gz' for n in names]
+    return [f'qc/ed2/windows/{n}_{c}_Bdata.gtab.gz' for n in names]
+
+
+def ed2_deep(series):
+    if series not in DEEP_SERIES:
+        return {}
+    first, last, c = SERIES[series].iloc[0]['name'], last_point(series), ed2_chrom(series)
+    return dict(ncov_in=[f'areas/{first}_{x}_Ncov.gtab.gz' for x in chroms_of(first)],
+                ncov_pt=[f'areas/{last}_{x}_Ncov.gtab.gz' for x in chroms_of(first)],
+                nuc=[f'tables/{series}_score/{series}_{c}_score.gtab.gz'])
+
+
+rule qc_ed2:
+    # panels after Extended Data Fig. 2 c-i of Park et al. (ed2.py); the PNGs are written next to ed2.json
+    input:
+        samples=lambda w: [f'qc/samples/{n}.json' for n in SERIES[w.series]['name']],
+        bins=lambda w: [f'bin/{n}_{KB[ED2_BIN]}_bin.gtab.gz' for n in SERIES[w.series]['name']],
+        tit=lambda w: titration_of(w.series),
+        ncov_in=lambda w: ed2_deep(w.series).get('ncov_in', []),
+        ncov_pt=lambda w: ed2_deep(w.series).get('ncov_pt', []),
+        nuc=lambda w: ed2_deep(w.series).get('nuc', []),
+        windows=lambda w: ed2_windows(w.series),
+        states=lambda w: [ed2_annot(w.series)['states']] if ed2_annot(w.series)['states'] and w.series in DEEP_SERIES else [],
+        cytoband=lambda w: [ed2_annot(w.series)['cytoband']] if ed2_annot(w.series)['cytoband'] else [],
+    output: 'qc/ed2/{series}/ed2.json'
+    params:
+        fasta=lambda w: fasta_of(SERIES[w.series].iloc[0]['name']),
+        chrom=lambda w: ed2_chrom(w.series),
+        agent=lambda w: f"--agent {SERIES[w.series].iloc[0]['agent']}" if SERIES[w.series].iloc[0]['agent'] else '',
+        mscale=lambda w: MSCALE.get(SERIES[w.series].iloc[0]['agent'], 1),
+        deep=lambda w, input: (f'--ncov-input {" ".join(input.ncov_in)} --ncov-point {" ".join(input.ncov_pt)} '
+                               f'--nuc-scores {input.nuc[0]}') if input.nuc else '',
+        states=lambda w, input: (f'--states {input.states[0]}' + (f' --states-key {ed2_annot(w.series)["key"]}'
+                                                                 if ed2_annot(w.series)['key'] else '')
+                                 + (f' --windows {" ".join(input.windows)}' if input.windows else '')) if input.states else '',
+        cytoband=lambda w, input: f'--cytoband {input.cytoband[0]}' if input.cytoband else '',
+    # GM12878 deep (hg38, chr1, 15 states, 9.2 M windows): 2 min, 4.3 GB
+    resources: mem_mb=lambda w, attempt: 8000 * attempt, runtime=lambda w, attempt: rt(60, attempt)
+    shell:
+        f'{CLI} qc-ed2 --series {{wildcards.series}} --samples {{input.samples}} --bins {{input.bins}} '
+        f'--bin-size {ED2_BIN} --titration {{input.tit}} --fasta {{params.fasta}} --chrom {{params.chrom}} '
+        f'{{params.agent}} --mscale {{params.mscale}} {{params.deep}} {{params.states}} {{params.cytoband}} '
+        f'--outdir qc/ed2/{{wildcards.series}}'
+
+ED2_SERIES = list(SERIES) if ED2_BIN else []
+
 rule qc_report:
     input:
         samples=[f'qc/samples/{n}.json' for n in SAMPLES.index],
         series=[f'qc/series/{s}.json' for s in SERIES],
         reps=[f'qc/replicates/{g}.json' for g in REP_GROUPS],
+        ed2=[f'qc/ed2/{s}/ed2.json' for s in ED2_SERIES],
     output: html='qc/report.html', summary='qc/summary.tsv', flags='qc/flags.tsv'
     params: thresholds=lambda w: ' '.join(f'{k}={v}' for k, v in SETTINGS['qc_thresholds'].items())
     resources: mem_mb=1000, runtime=lambda w, attempt: rt(10, attempt)
     shell:
         f'{CLI} qc-report --samples {{input.samples}} --series {{input.series}} '
-        f'--replicates {{input.reps}} --thresholds {{params.thresholds}} --outdir qc'
+        f'--replicates {{input.reps}} --ed2 {{input.ed2}} --thresholds {{params.thresholds}} --outdir qc'

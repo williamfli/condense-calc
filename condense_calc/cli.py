@@ -20,7 +20,7 @@ from pathlib import Path
 import pysam
 import yaml
 
-from . import counts, fastq, fetch, fit, fragments, gtab, qc, reference, score, settings, sheet, titration
+from . import annotations, counts, ed2, fastq, fetch, fit, fragments, gtab, qc, reference, score, settings, sheet, titration
 
 PKG = Path(__file__).resolve().parent
 
@@ -221,7 +221,14 @@ def _user_settings(args, src):
     cfg = (yaml.safe_load(path.read_text()) or {}) if path else {}
     if args.park is not None:
         cfg['park'] = args.park
+    if getattr(args, 'states', None):
+        cfg['states'] = _states_arg(args.states)
     return cfg
+
+
+def _states_arg(v):
+    """--states: auto, or a file (made absolute: the workflow runs in the output folder)."""
+    return 'auto' if v.lower() == 'auto' else str(Path(v).expanduser().resolve())
 
 
 def _todo(args, S, is_sheet):
@@ -368,6 +375,7 @@ def cmd_run(args):
     # a sheet run has it in condense.yaml
     conf += [f'park={str(args.park).lower()}'] if args.park is not None and not is_sheet else []
     conf += [f'refs={reference.refs_dir(args.refs)}'] if args.refs and not is_sheet else []
+    conf += [f'states={_states_arg(args.states)}'] if args.states and not is_sheet else []
     cmd += ['--config', *conf] if conf else []
     if args.slurm:
         res = ['mem_mb=4000', 'runtime=120']
@@ -423,8 +431,21 @@ def cmd_qc_replicates(args):
     qc.replicate_figure(d, args.png)
 
 
+def cmd_qc_ed2(args):
+    ed2.run(args.series, args.samples, args.bins, args.bin_size, args.titration, args.fasta, args.chrom, args.outdir,
+            agent=args.agent, mscale=args.mscale, ncov_input=args.ncov_input or (), ncov_point=args.ncov_point or (),
+            nuc_scores=args.nuc_scores, states=args.states, states_key=args.states_key,
+            win_input=args.windows[0] if args.windows else None, win_point=args.windows[1] if args.windows else None,
+            cytoband=args.cytoband)
+
+
+def cmd_fetch_annotation(args):
+    print(annotations.fetch(args.file, args.folder))
+
+
 def cmd_qc_report(args):
-    fl = qc.report(args.samples, args.series, args.replicates or [], args.thresholds or [], args.outdir)
+    fl = qc.report(args.samples, args.series, args.replicates or [], args.thresholds or [], args.outdir,
+                   ed2_jsons=args.ed2 or [])
     for f in fl:
         v = qc._fmt(f['value']) if not isinstance(f['value'], str) else f['value']
         print(f"QC {f['level']}: {f['name']}: {f['metric']} = {v} ({f['threshold']})")
@@ -491,6 +512,10 @@ def main(argv=None):
     s.add_argument('--nucleosomes', action='store_true',
                    help='also score every nucleosome (for deeply sequenced series; slower)')
     s.add_argument('--qc', choices=['off', 'default', 'verbose'], help='QC level (default: default)')
+    s.add_argument('--states', metavar='auto|FILE',
+                   help='chromatin states for the QC panels after Extended Data Fig. 2g-i: auto (built-in '
+                        'annotations of GM12878 and E14 mESC, downloaded once into the refs folder) or a BED '
+                        'file of chrom, start, end, state')
     s.add_argument('--settings', help='YAML file with further settings (docs/details.md, "All settings")')
     mode(s, "Park et al. 2025's processing, which reproduces their GEO tables. Name series as on GEO "
             '(GM_..., mCD8T_...): Park mode scores GM and mCD8T without chrY')
@@ -640,10 +665,38 @@ def main(argv=None):
     s.add_argument('--png', required=True)
     s.set_defaults(func=cmd_qc_replicates)
 
+    s = sub.add_parser('qc-ed2', help='QC: panels after Extended Data Fig. 2 of Park et al. (one series)')
+    s.add_argument('--series', required=True)
+    s.add_argument('--samples', nargs='+', required=True, help='qc-sample JSON files (fragment lengths)')
+    s.add_argument('--bins', nargs='+', required=True, help='bin-count tables of all points, input included')
+    s.add_argument('--bin-size', type=int, required=True, help='their bin size (bp); summed to 10 kb for panel d')
+    s.add_argument('--titration', required=True)
+    s.add_argument('--fasta', required=True)
+    s.add_argument('--chrom', required=True, help='the chromosome drawn (Park: chr1)')
+    s.add_argument('--agent', default='', help='for the legend, e.g. sp: [sp]=0.79mM')
+    s.add_argument('--mscale', type=float, default=1.0)
+    s.add_argument('--ncov-input', nargs='*', help='deep: Ncov tables of the input, all chromosomes')
+    s.add_argument('--ncov-point', nargs='*', help='deep: Ncov tables of the last point, all chromosomes')
+    s.add_argument('--nuc-scores', help="deep: the series' per-nucleosome score table of --chrom")
+    s.add_argument('--states', help='chromatin states, BED (panels g-i)')
+    s.add_argument('--states-key', choices=sorted(annotations.STATES), help='built-in annotation of --states')
+    s.add_argument('--windows', nargs=2, metavar=('INPUT', 'POINT'),
+                   help='sliding-window areas of --chrom, input and last point (panel h)')
+    s.add_argument('--cytoband', help='cytogenetic bands (UCSC cytoBand); acen and gvar are masked in panel d')
+    s.add_argument('--outdir', required=True)
+    s.set_defaults(func=cmd_qc_ed2)
+
+    s = sub.add_parser('fetch-annotation', help='download a built-in annotation file and check its md5')
+    s.add_argument('file', choices=sorted(e['file'] for e in list(annotations.STATES.values())
+                                          + list(annotations.CYTOBANDS.values())))
+    s.add_argument('--folder', required=True)
+    s.set_defaults(func=cmd_fetch_annotation)
+
     s = sub.add_parser('qc-report', help='QC: summary, flags and HTML report')
     s.add_argument('--samples', nargs='+', required=True)
     s.add_argument('--series', nargs='+', required=True)
     s.add_argument('--replicates', nargs='*')
+    s.add_argument('--ed2', nargs='*', help='qc-ed2 JSON files')
     s.add_argument('--thresholds', nargs='*', help='overrides, e.g. min_replicate_rho=0.7')
     s.add_argument('--outdir', required=True)
     s.set_defaults(func=cmd_qc_report)

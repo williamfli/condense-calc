@@ -36,7 +36,7 @@ THRESHOLDS = {
     'max_tlen_mode': (170, 'fragment-length mode, upper bound'),
     'max_dup_fraction': (0.30, 'share of duplicate fragments (verbose only)'),
     'max_zero_input_fraction': (0.15, 'share of bins without input reads'),
-    'max_score_input_rho': (0.30, '|Spearman| of score with input count (Park: ~0.14)'),
+    'max_score_input_rho': (0.30, '|Spearman| of the binned score with the input read count'),
     'min_replicate_rho': (0.60, 'Spearman between replicates at a titration point'),
     'min_fit_fraction': (0.90, 'share of bins with a c-half fit (R^2 above the cutoff)'),
 }
@@ -462,10 +462,11 @@ def _fmt(v):
     return str(v)
 
 
-def report(sample_jsons, series_jsons, rep_jsons, overrides, outdir):
+def report(sample_jsons, series_jsons, rep_jsons, overrides, outdir, ed2_jsons=()):
     outdir = Path(outdir)
     load = lambda ps: [json.loads(Path(p).read_text()) for p in ps]
     samples, series, reps = load(sample_jsons), load(series_jsons), load(rep_jsons)
+    ed2 = load(ed2_jsons)
     th = {k: v[0] for k, v in THRESHOLDS.items()}
     for kv in overrides:
         k, v = kv.split('=', 1)
@@ -528,6 +529,25 @@ def report(sample_jsons, series_jsons, rep_jsons, overrides, outdir):
     if reps:
         parts += ['<h2>Replicates</h2>', table(rt)]
         parts += [f"<img src='replicates/{html.escape(d['group'])}.png'>" for d in reps]
+    if ed2:
+        rows = [{'series': e['series'], 'chrom': e['chrom'], 'panels': ''.join(e['panels']),
+                 'd_mask': e['d']['mask'],
+                 'e_ww_period_bp': e.get('e', {}).get('ww_period_bp'),
+                 'f_rho_score_input': e.get('f', {}).get('spearman_score_input'),
+                 'f_rho_score_sup': e.get('f', {}).get('spearman_score_sup'),
+                 'states': len(e['states']['used']) if 'states' in e else None,
+                 'h_max_cohen_d': e.get('h', {}).get('cohen_d_max')} for e in ed2]
+        parts += ['<h2>Panels after Extended Data Fig. 2 (Park et al. 2025)</h2>',
+                  '<p>c fragment lengths; d NCP number along the chromosome (25 kb, smoothed) with the condensability '
+                  'of the last point; deep series: e dinucleotides around the dyads, f input vs last point per '
+                  'nucleosome; with chromatin states: g NCP number, h called nucleosomes vs sliding windows, '
+                  "i Cohen's d and Welch p between states.</p>",
+                  table(pd.DataFrame(rows).dropna(axis=1, how='all'))]
+        for e in ed2:
+            d = f"ed2/{html.escape(e['series'])}"
+            parts += [f"<h3>{html.escape(e['series'])}</h3>",
+                      ''.join(f"<img src='{d}/ed2{k}.png' style='max-height:{360 if k != 'd' else 300}px;"
+                              f"{'' if k != 'd' else 'display:block;'}margin:4px'>" for k in e['panels'])]
     parts += ['<h2>Thresholds</h2>',
               table(pd.DataFrame([{'name': k, 'value': th[k], 'meaning': v[1]} for k, v in THRESHOLDS.items()]))]
     (outdir / 'report.html').write_text('\n'.join(parts))

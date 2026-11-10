@@ -8,7 +8,8 @@ The defaults are the paper's processing; what `--revised` changes, and why: [rev
 ## All settings
 
 In a YAML file given with `--settings FILE` (sample-sheet run), or in the config file (config run).
-`--revised` (or `--park`), `--qc` and (sample-sheet runs) `--nucleosomes` set `park`, `qc` and `nucleosomes`.
+`--revised` (or `--park`), `--qc`, `--states` and (sample-sheet runs) `--nucleosomes` set `park`, `qc`, `states` and
+`nucleosomes`.
 Settings you give override `--revised`. A config run stops on `--settings`, `--nucleosomes` and `-g`: put these in the config.
 
 | setting | default | `--revised` | |
@@ -28,6 +29,8 @@ Settings you give override `--revised`. A config run stops on `--settings`, `--n
 | `fit` | `{bin_size: 10000, min_tnum: 5, model: sigmoid, method: evolution, min_rsq: 0.5}` | | c½ fit; `min_tnum` counts the input; `model`: `sigmoid` or `hill`; `method`: `evolution` or `curve_fit` |
 | `qc` | `default` | | `off`, `default`, `verbose` (adds duplicates, GC, a score profile, dinucleotide periodicity) |
 | `qc_thresholds` | `{}` | | overrides, e.g. `{min_replicate_rho: 0.7}`; the report lists every threshold |
+| `states` | none | | chromatin states for QC panels g–i: `auto` (built in, below), a BED file, or `{cell: auto or file}` (`--states`) |
+| `cytoband` | none | | cytogenetic bands masked in QC panel d: `auto` or a UCSC `cytoBand` file; none: assembly gaps (`states: auto` also sets `auto`) |
 | `max_runtime` | 4320 | | minutes; the longest time limit a retried step may ask for (Slurm) |
 | `chroms` | see below; GM, mCD8T: no chrY | see below | chromosomes to score; in a config file, per cell under `cells:` |
 | `nucleosomes` | `false` | | sample-sheet run: per-nucleosome scores for every series (config run: `depth: deep`) |
@@ -98,7 +101,7 @@ With a config file the names follow GEO: `<cell>_<sample>_<agent>_<point>_<rep>r
 | score_ncov, table_ncov | `NCPscore_ver4.py`, `concat_gtab.py` | per nucleosome, normalized over all chromosomes | `tables/<series>_score/` |
 | num_bin, table_num | `NCPnum_ver2.py` | fitted series: nucleosome numbers, 1.6 × 10¹² input nucleosomes × `mscale` | `tables/<series>_10kb_num.gtab.gz` |
 | fit | `logistic_fit_ver3.py` | c½ at 10 kb, series with ≥ 5 points; sigmoid, top 1, bottom 0, rate 0–100, differential evolution (seed 3); R² ≥ 0.5 | `tables/<series>_10kb_4PL.gtab.gz` |
-| QC, run record | | QC report and flags; settings, references and versions | `qc/`, `run_info.json` |
+| QC, run record | | QC report and flags; panels after Extended Data Fig. 2 (below); settings, references and versions | `qc/`, `run_info.json` |
 
 - **Score:** −ln[(s+1)/Σ(s+1) ÷ (c+1)/Σ(c+1)] − ln *f*, for supernatant count *s*, input count *c* and soluble
   fraction *f*; the sums run over rows with *c* > 0. Rows without input reads are dropped (`--revised`: NA).
@@ -111,8 +114,43 @@ With a config file the names follow GEO: `<cell>_<sample>_<agent>_<point>_<rep>r
   `bowtie-submit` with the driver's `trim_to = 50`.
 
 Not carried over from the original scripts: per-base coverage files and the full dyad-signal file (both computed in
-memory), scores of sliding windows, the log2/log10 score options, and the original downstream scripts
-(fragment-length plots, occupancy, motifs, profiles, annotation).
+memory), the log2/log10 score options, and most of the original downstream scripts (occupancy, motifs, profiles,
+annotation). The QC panels below redo the single-dataset panels of Extended Data Fig. 2.
+
+## QC panels after Extended Data Fig. 2
+
+The QC step draws, for each series, the panels of the paper's Extended Data Fig. 2 that one dataset allows, with
+the computations, colours and layout of the paper's notebooks, on chromosome 1 (`qc/ed2/<series>/`, in the
+report; [example](qc_example.md#panels-after-extended-data-fig-2)):
+
+| panel | shows | series |
+|---|---|---|
+| c | fragment-length distribution of each point | all |
+| d | NCP number along the chromosome (25 kb bins, 81-bin moving mean, log10, centred), with the condensability of the last point | all |
+| e | AA/AT/TA/TT and CC/CG/GC/GG frequency across 147 bp at the called dyads | deep |
+| f | per nucleosome: NCP number of the input vs the last point, coloured by condensability | deep |
+| g | NCP number of the input and the last point per chromatin state | deep, with states |
+| h | condensability per state: called nucleosomes vs 171 bp sliding windows, with Cohen's d | deep, with states |
+| i | Cohen's d and Welch's t-test p-value between all pairs of states | deep, with states |
+
+The NCP number is 1.6 × 10¹² × `mscale` × *f* × count / total count, as `num_bin`. Panel d masks the acen and gvar
+bands when cytogenetic bands are given (as the paper), else 25 kb bins more than half N. Bins smaller than 10 kb are
+summed to 10 kb for panel d. Panel h needs 171 bp windows every 25 bp on chromosome 1 for the input and the last
+point: with `bdata: true` these come from `areas/`, else one extra pass over those two BAMs (`qc/ed2/windows/`).
+
+Chromatin states (`--states`): `auto` uses a built-in annotation when the cell (config) or series group (sample
+sheet) starts with its name, and downloads it once into `<refs>/annotations/`, checked against its md5:
+
+| cell names | genome | annotation |
+|---|---|---|
+| `GM`, `GM12878` | hg38 | ENCODE ENCFF140VIG: ChromHMM 15-state model of GM12878 (ENCODE4) |
+| `E14`, `mESC` | mm10 | ChromHMM 12-state model of E14 mESC (Pintacuda, Wei et al., Mol Cell, 2017; github.com/guifengwei/ChromHMM_mESC_mm10) |
+
+`auto` also fetches the UCSC hg38 cytogenetic bands for hg38 runs (mm10 has no acen or gvar bands on chromosome 1).
+For other cells give a BED file of chromosome, start, end and state name (`--states FILE`, or per cell in a config:
+`states: {H1: h1_states.bed}`); its states are ordered by name, numeric prefixes as numbers. The paper's own
+12-state H1, GM12878 and mCD8 T cell models are not published, so panels g–i show other segmentations than the
+paper's.
 
 ## Resources
 
@@ -127,6 +165,7 @@ Measured on hg38. Deep: libraries of ~320 M read pairs.
 | areas (per chromosome) | ≤ 6.5 GB (deep) | ≤ 3 min |
 | score_ncov | ≤ 14.8 GB (deep) | ≤ 7 min |
 | fit | 0.5 GB | ~2.5 h for 10 points (one core) |
+| QC panels (Extended Data Fig. 2), per series | 4.3 GB (deep GM12878, chr1, 15 states) | ~2 min |
 
 Other steps need ≤ 2 GB. Time limits are short so jobs start sooner: 1 h for most steps (at least 8× the longest measured), and for align 3× its expected time from the FASTQ size, plus 1 h. With `--slurm`, a failed step is retried once with twice the memory and twice the time
 limit (time capped at `max_runtime`). A deep series with per-nucleosome scores takes ~3–5 h from FASTQ.

@@ -79,6 +79,7 @@ condense samples.tsv -g mm10            # mouse (default: -g hg38)
 condense samples.tsv --revised          # with the design changes of docs/revised.md
 condense samples.tsv -g genome.fa       # another genome (FASTA file)
 condense deep.tsv --nucleosomes         # a sheet of deep series only (~300 M read pairs per library): also a score per nucleosome
+condense deep.tsv --nucleosomes --states auto   # also QC per chromatin state (built in: GM12878, E14 mESC; else a BED file)
 ```
 
 Neither the species nor the sequencing depth is detected from the reads. Give `-g` for any genome other than human, and `--nucleosomes` for deep series. Both apply to every series in the sheet, so put mouse and human series, or deep and shallow ones, in separate sheets.
@@ -94,7 +95,7 @@ In `results/` next to `samples.tsv` (or in `-o FOLDER`). Tables are gzipped tab-
 | `tables/<series>_10kb_score.gtab.gz`, `tables/<series>_1kb_score.gtab.gz` | score per bin; higher is more condensable. One column per concentration, input excluded: `<series>_1`, `<series>_2`, ... in increasing order (as in `titration/<series>.tsv`). Bins without input reads are left out (`--revised`: NA) |
 | `tables/<series>_10kb_4PL.gtab.gz` | c½ per bin: the concentration at which half of the bin's nucleosomes stay soluble (series with the input and at least 4 concentrations) |
 | `tables/<series>_score/` | score per nucleosome, one file per chromosome (`--nucleosomes`) |
-| `qc/report.html` | QC report ([example](docs/qc_example.md)); `qc/flags.tsv` lists values outside the expected range |
+| `qc/report.html` | QC report ([example](docs/qc_example.md)), with panels drawn as in the paper's Extended Data Fig. 2; `qc/flags.tsv` lists values outside the expected range |
 | `run_info.json` | settings, references, condense-calc and bowtie2 versions |
 
 ## Reproduce the paper's GEO tables
