@@ -70,6 +70,47 @@ Titration points:
 | GM_NCP_sp_1rep_deep | 0.0389 | 0.631 | 19,059,235 | 140 | GM_NCP_sp_4_1rep_deep | 4 | 291,328 | 1.74 | -0.602 | -0.949 |
 | GM_NCP_sp_1rep_deep | 0.0389 | 0.631 | 19,059,235 | 140 | GM_NCP_sp_8_1rep_deep | 8 | 291,328 | 2.77 | -0.595 | -0.97 |
 
+## Panels after Extended Data Fig. 2
+
+The same deep series, run with `--states auto` (ENCODE's ChromHMM 15-state model of GM12878, ENCFF140VIG). The
+QC step redraws the panels of the paper's Extended Data Fig. 2 that one dataset allows, on chromosome 1, with the
+computations and styling of the paper's notebooks ([details](details.md#qc-panels-after-extended-data-fig-2)). The
+paper shows them for H1; a shallow series gets panels c and d only.
+
+**c** Fragment lengths: modes 158, 157 and 153 bp; 96–99% of fragments are 126–184 bp.
+
+![Extended Data Fig. 2c, GM12878 deep](qc_example/GM_NCP_sp_1rep_deep_ed2c.png)
+
+**d** NCP number along chromosome 1 (25 kb bins, smoothed, log10, centred) for each sample, and the condensability
+of the last point (dashed, right axis). The centromere and the 1q12 heterochromatin (acen and gvar bands) are masked.
+The input is nearly flat; the supernatant at 0.79 mM falls where condensability rises.
+
+![Extended Data Fig. 2d, GM12878 deep](qc_example/GM_NCP_sp_1rep_deep_ed2d.png)
+
+**e** Dinucleotides across 147 bp at 1.51 M dyads called on chromosome 1: AA/AT/TA/TT and CC/CG/GC/GG alternate with
+a period of 10.3 bp.
+
+![Extended Data Fig. 2e, GM12878 deep](qc_example/GM_NCP_sp_1rep_deep_ed2e.png)
+
+**f** Per nucleosome, input vs supernatant NCP number, coloured by condensability. Condensability follows the
+supernatant (Spearman −0.88) and not the input (−0.03); the paper's H1 values are −0.79 and 0.14.
+
+![Extended Data Fig. 2f, GM12878 deep](qc_example/GM_NCP_sp_1rep_deep_ed2f.png)
+
+**g** NCP number per chromatin state: the input is similar across states, while the supernatant is lowest in
+transcribed, Polycomb, heterochromatin and quiescent states.
+
+![Extended Data Fig. 2g, GM12878 deep](qc_example/GM_NCP_sp_1rep_deep_ed2g.png)
+
+**h** Condensability per state from the called nucleosomes and from 9.2 M sliding windows (171 bp, every 25 bp).
+The two agree to Cohen's d 0.09–0.28 per state; the paper's H1 panel marks the states n.s. (d < 0.1).
+
+![Extended Data Fig. 2h, GM12878 deep](qc_example/GM_NCP_sp_1rep_deep_ed2h.png)
+
+**i** Cohen's d (upper triangle) and −log10 Welch p-value (lower, capped at 10) between the states' condensability.
+
+![Extended Data Fig. 2i, GM12878 deep](qc_example/GM_NCP_sp_1rep_deep_ed2i.png)
+
 ## What each part means
 
 - **Flags**: values outside the expected range, `warn` or `info`. Thresholds, and how to change them
@@ -82,3 +123,6 @@ Titration points:
   counts; c½ fits where a series is fitted; nucleosome spacing for deep series. `--qc verbose` adds duplicates,
   GC dependence, a chromosome profile and dinucleotide periodicity.
 - **Replicates** (when a run has several): Spearman between replicates at each point, with scatter plots.
+- **Panels after Extended Data Fig. 2**, per series: c and d for every series, e and f for deep series, g–i for
+  deep series with chromatin states (`--states`), with a summary table (dinucleotide period, the two Spearman
+  values of f, the largest Cohen's d of h).
